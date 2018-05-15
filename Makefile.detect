@@ -60,9 +60,11 @@ SO_VERSIONED_SUFFIX = .$(SOVERSION)$(SO)
 SO_MAJOR_VERSIONED_SUFFIX = .$(SOVERSION_MAJOR)$(SO)
 EXE =
 CLIBFLAGS =
-CLINKFLAGS = -dynamiclib
+#CLINKFLAGS = -dynamiclib
+CLINKFLAGS = -shared
 STATICFLAGS = -DSEXP_USE_DL=0  # -static-libgcc
-LIBCHIBI_FLAGS = -install_name $(DESTDIR)$(SOLIBDIR)/libchibi-scheme.$(SOVERSION).dylib
+#LIBCHIBI_FLAGS = -install_name $(DESTDIR)$(SOLIBDIR)/libchibi-scheme.$(SOVERSION).dylib
+LIBCHIBI_FLAGS = -Wl
 else
 ifeq ($(PLATFORM),bsd)
 SO  = .so
