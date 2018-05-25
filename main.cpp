@@ -16,12 +16,9 @@ sexp sexp_hello_user_stub (sexp ctx, sexp self, sexp_sint_t n, sexp arg0) {
 
 
 sexp sexp_init_library (sexp ctx, sexp self, sexp_sint_t n, sexp env, const char* version, const sexp_abi_identifier_t abi) {
-	printf("1");
   sexp_gc_var3(name, tmp, op);
-	printf("2");
   if (!(sexp_version_compatible(ctx, version, sexp_version)
         && sexp_abi_compatible(ctx, abi, SEXP_ABI_IDENTIFIER))){
-		printf("3");
     return SEXP_ABI_ERROR;
 	}
   sexp_gc_preserve3(ctx, name, tmp, op);
@@ -31,12 +28,11 @@ sexp sexp_init_library (sexp ctx, sexp self, sexp_sint_t n, sexp env, const char
     sexp_opcode_arg1_type(op) = sexp_make_fixnum(SEXP_STRING);
   }
   sexp_gc_release3(ctx);
-	printf("4");
   return SEXP_VOID;
 }
 
 int main(int argc, char **argv)
-{	
+{	            
 	sexp ctx;
 	ctx = sexp_make_eval_context(NULL, NULL, NULL, 0, 0);
 	sexp_load_standard_env(ctx, NULL, SEXP_SEVEN);

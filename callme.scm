@@ -19,6 +19,8 @@
 ;;	(display "hello world")
 ;;	(display (testC)))
 
+(display "in scheme")
+
 (define (say-hello)
 	(display "say-hello")
 	(newline)

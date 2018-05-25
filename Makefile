@@ -104,10 +104,10 @@ endif
 
 ifeq ($(SEXP_USE_DL),0)
 XLDFLAGS  := $(LDFLAGS) $(RLDFLAGS) $(GCLDFLAGS) -lm
-XCFLAGS   := -Wall -DSEXP_USE_DL=0 -g -g3 -O3 $(CFLAGS)
+XCFLAGS   := -Wall -DSEXP_USE_DL=0 -g -g3 $(CFLAGS)
 else
 XLDFLAGS  := $(LDFLAGS) $(RLDFLAGS) $(GCLDFLAGS) $(LIBDL) -lm
-XCFLAGS   := -Wall -g -g3 -O3 $(CFLAGS)
+XCFLAGS   := -Wall -g -g3 $(CFLAGS)
 endif
 
 ########################################################################
@@ -117,7 +117,7 @@ all: chibi-scheme$(EXE) all-libs chibi-scheme.pc $(META_FILES)
 js: js/chibi.js
 
 js/chibi.js: chibi-scheme-emscripten chibi-scheme-static.bc js/pre.js js/post.js js/exported_functions.json
-	emcc -O3 chibi-scheme-static.bc -o $@ -s MODULARIZE=1 -s EXPORT_NAME=\"Chibi\" -s EXPORTED_FUNCTIONS=@js/exported_functions.json `find  lib -type f \( -name "*.scm" -or -name "*.sld" \) -printf " --preload-file %p"` --pre-js js/pre.js --post-js js/post.js
+	emcc chibi-scheme-static.bc -o $@ -s MODULARIZE=1 -s EXPORT_NAME=\"Chibi\" -s EXPORTED_FUNCTIONS=@js/exported_functions.json `find  lib -type f \( -name "*.scm" -or -name "*.sld" \) -printf " --preload-file %p"` --pre-js js/pre.js --post-js js/post.js
 
 chibi-scheme-static.bc:
 	emmake $(MAKE) PLATFORM=emscripten CHIBI_DEPENDENCIES= CHIBI=./chibi-scheme-emscripten PREFIX= CFLAGS=-O2 SEXP_USE_DL=0 EXE=.bc SO=.bc CPPFLAGS="-DSEXP_USE_STRICT_TOPLEVEL_BINDINGS=1 -DSEXP_USE_ALIGNED_BYTECODE=1 -DSEXP_USE_STATIC_LIBS=1 -DSEXP_USE_STATIC_LIBS_NO_INCLUDE=0" clibs.c chibi-scheme-static.bc
