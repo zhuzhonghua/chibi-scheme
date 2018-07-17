@@ -7,9 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		2C15F35E20FB4DD3009ED9F4 /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2C15F35D20FB4DD3009ED9F4 /* main.cpp */; };
 		2CCB63C620B7EA2700048CA0 /* gc_heap.c in Sources */ = {isa = PBXBuildFile; fileRef = 2CCB63BE20B7EA2600048CA0 /* gc_heap.c */; };
 		2CCB63C720B7EA2700048CA0 /* bignum.c in Sources */ = {isa = PBXBuildFile; fileRef = 2CCB63BF20B7EA2600048CA0 /* bignum.c */; };
-		2CCB63C820B7EA2700048CA0 /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2CCB63C020B7EA2600048CA0 /* main.cpp */; };
 		2CCB63C920B7EA2700048CA0 /* sexp.c in Sources */ = {isa = PBXBuildFile; fileRef = 2CCB63C120B7EA2600048CA0 /* sexp.c */; };
 		2CCB63CA20B7EA2700048CA0 /* eval.c in Sources */ = {isa = PBXBuildFile; fileRef = 2CCB63C220B7EA2600048CA0 /* eval.c */; };
 		2CCB63CB20B7EA2700048CA0 /* gc.c in Sources */ = {isa = PBXBuildFile; fileRef = 2CCB63C320B7EA2600048CA0 /* gc.c */; };
@@ -32,6 +32,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		2C15F35D20FB4DD3009ED9F4 /* main.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = main.cpp; path = ../c2scheme/one/main.cpp; sourceTree = "<group>"; };
 		2CCB63B420B7E9EA00048CA0 /* chibi-xcode */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "chibi-xcode"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2CCB63BE20B7EA2600048CA0 /* gc_heap.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = gc_heap.c; path = ../../gc_heap.c; sourceTree = "<group>"; };
 		2CCB63BF20B7EA2600048CA0 /* bignum.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = bignum.c; path = ../../bignum.c; sourceTree = "<group>"; };
@@ -58,9 +59,26 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		2C15F35B20FB4DB5009ED9F4 /* c2scheme */ = {
+			isa = PBXGroup;
+			children = (
+				2C15F35C20FB4DC0009ED9F4 /* one */,
+			);
+			name = c2scheme;
+			sourceTree = "<group>";
+		};
+		2C15F35C20FB4DC0009ED9F4 /* one */ = {
+			isa = PBXGroup;
+			children = (
+				2C15F35D20FB4DD3009ED9F4 /* main.cpp */,
+			);
+			name = one;
+			sourceTree = "<group>";
+		};
 		2CCB63AB20B7E9EA00048CA0 = {
 			isa = PBXGroup;
 			children = (
+				2C15F35B20FB4DB5009ED9F4 /* c2scheme */,
 				2CCB63B620B7E9EA00048CA0 /* chibi-xcode */,
 				2CCB63B520B7E9EA00048CA0 /* Products */,
 			);
@@ -154,11 +172,11 @@
 				2CCB63CA20B7EA2700048CA0 /* eval.c in Sources */,
 				2CCB63C620B7EA2700048CA0 /* gc_heap.c in Sources */,
 				2CCB63C720B7EA2700048CA0 /* bignum.c in Sources */,
-				2CCB63C820B7EA2700048CA0 /* main.cpp in Sources */,
 				2CCB63C920B7EA2700048CA0 /* sexp.c in Sources */,
 				2CCB63CB20B7EA2700048CA0 /* gc.c in Sources */,
 				2CCB63CC20B7EA2700048CA0 /* vm.c in Sources */,
 				2CCB63D320B7ECBA00048CA0 /* simplify.c in Sources */,
+				2C15F35E20FB4DD3009ED9F4 /* main.cpp in Sources */,
 				2CCB63CD20B7EA2700048CA0 /* opcodes.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -279,7 +297,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				HEADER_SEARCH_PATHS = "/Users/zhonghua/work/scheme_nginx/chibi-scheme/include";
+				HEADER_SEARCH_PATHS = "\"$(SRCROOT)/../include\"";
+				MACOSX_DEPLOYMENT_TARGET = 10.7;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Debug;
@@ -288,7 +307,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				HEADER_SEARCH_PATHS = "/Users/zhonghua/work/scheme_nginx/chibi-scheme/include";
+				HEADER_SEARCH_PATHS = "\"$(SRCROOT)/../include\"";
+				MACOSX_DEPLOYMENT_TARGET = 10.7;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Release;

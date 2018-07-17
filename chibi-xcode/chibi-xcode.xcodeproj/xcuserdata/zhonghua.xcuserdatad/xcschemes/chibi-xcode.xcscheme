@@ -47,7 +47,7 @@
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       launchStyle = "0"
       useCustomWorkingDirectory = "YES"
-      customWorkingDirectory = "/Users/zhonghua/work/scheme_nginx/chibi-scheme"
+      customWorkingDirectory = "/Users/zhonghua/demo/scheme_nginx/chibi-scheme/c2scheme/one"
       ignoresPersistentStateOnLaunch = "NO"
       debugDocumentVersioning = "YES"
       debugServiceExtension = "internal"
