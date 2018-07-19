@@ -1,0 +1,2 @@
+(c-include "c2scheme.h")	
+(define-c void hello-user (string))
