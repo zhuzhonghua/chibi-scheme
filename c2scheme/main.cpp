@@ -20,6 +20,8 @@ int main(int argc, char **argv)
 	sexp_load_standard_env(ctx, NULL, SEXP_SEVEN);
 	sexp_load_standard_ports(ctx, NULL, stdin, stdout, stderr, 0);
 
+	sexp_init_library(ctx, NULL, 3, sexp_context_env(ctx), sexp_version, SEXP_ABI_IDENTIFIER);
+	
 	obj1 = sexp_c_string(ctx, "callme.scm", -1);
 	sexp_load(ctx, obj1, NULL);
 
