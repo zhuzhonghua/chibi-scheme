@@ -11,11 +11,14 @@ int main(int argc, char **argv)
 
 	sexp ctx;
 	ctx = sexp_make_eval_context(NULL, NULL, NULL, 0, 0);
+
+	sexp_gc_var5(obj1, arg_val, arg_sym, ret, tmp);
+	sexp_gc_preserve5(ctx, obj1, arg_val, arg_sym, ret, tmp);
+
+	sexp_add_module_directory(ctx, tmp=sexp_c_string(ctx,"../lib",-1), SEXP_TRUE);
+	
 	sexp_load_standard_env(ctx, NULL, SEXP_SEVEN);
 	sexp_load_standard_ports(ctx, NULL, stdin, stdout, stderr, 0);
-
-	sexp_gc_var4(obj1, arg_val, arg_sym, ret);
-	sexp_gc_preserve4(ctx, obj1, arg_val, arg_sym, ret);
 
 	obj1 = sexp_c_string(ctx, "callme.scm", -1);
 	sexp_load(ctx, obj1, NULL);

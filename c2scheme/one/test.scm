@@ -1,3 +1,4 @@
 (import (chibi))
-(display “Hello world from Scheme.”)
+
+(display "Hello world from Scheme.")
 (newline)
