@@ -5,7 +5,7 @@
 
 (define known-implementations
   '((chibi "chibi-scheme" (chibi-scheme -V) "0.7.3")
-    (chicken "chicken" (csi -p "(chicken-version)") "4.9.0")
+    (chicken "chicken" (csi -release) "4.9.0")
     (cyclone "cyclone" (icyc -vn) "0.5.3")
     (foment "foment")
     (gauche "gosh" (gosh -E "print (gauche-version)" -E exit) "0.9.4")
@@ -981,21 +981,39 @@
 ;; Provides a summary of the libraries to remove along with any
 ;; dependencies they have which were not explicitly installed.
 
-(define (warn-delete-file file)
+(define (remove-with-sudo? cfg path)
+  (case (or (conf-get cfg '(command remove use-sudo?))
+            (conf-get cfg '(command upgrade use-sudo?)))
+    ((always) #t)
+    ((never) #f)
+    (else
+     (not (file-is-writable? (path-directory path))))))
+
+(define (remove-file cfg file)
+  (if (remove-with-sudo? cfg file)
+      (system "sudo" "rm" file)
+      (delete-file file)))
+
+(define (remove-directory cfg dir)
+  (if (remove-with-sudo? cfg dir)
+      (system "sudo" "rmdir" dir)
+      (delete-directory dir)))
+
+(define (warn-delete-file cfg file)
   (guard (exn (else (warn "couldn't delete file: " file)))
-    (delete-file file)))
+    (remove-file cfg file)))
 
 (define (delete-library-files impl cfg pkg lib-name)
-  (for-each warn-delete-file (package-installed-files pkg))
-  (warn-delete-file (make-path (get-install-source-dir impl cfg)
-                               (get-package-meta-file cfg pkg)))
+  (for-each (lambda (f) (warn-delete-file cfg f)) (package-installed-files pkg))
+  (warn-delete-file cfg (make-path (get-install-source-dir impl cfg)
+                                   (get-package-meta-file cfg pkg)))
   (cond
    ((package->path cfg pkg)
     => (lambda (path)
          (let ((dir (make-path (get-install-source-dir impl cfg) path)))
            (if (and (file-directory? dir)
                     (= 2 (length (directory-files dir))))
-               (delete-directory dir)))))))
+               (remove-directory cfg dir)))))))
 
 (define (command/remove cfg spec . args)
   (let* ((impls (conf-selected-implementations cfg))
@@ -1145,9 +1163,9 @@
                    `(,(car repo) (url ,repo-uri) ,@(cdr repo))))))
     (cond
      ((not (valid-repository? repo))
-      (die 2 "not a valid repository: " repo-uri))
+      (warn "not a valid repository: " repo-uri repo))
      ((not (create-directory* local-dir))
-      (die 2 "can't create directory: " local-dir))
+      (warn "can't create directory: " local-dir))
      (else
       (guard (exn (else (die 2 "couldn't write repository")))
         (call-with-output-file local-tmp
@@ -1287,6 +1305,16 @@
       (string->number (process->string '(csi -p "(##sys#fudge 42)")))
       8))
 
+(define (get-chicken-repo-path)
+  (let ((release (string-trim (process->string '(csi -release))
+			      char-whitespace?)))
+    (string-trim
+      (if (string-prefix? "4." release)
+	(process->string '(csi -p "(repository-path)"))
+	(process->string
+	  '(csi -R chicken.platform -p "(car (repository-path))")))
+      char-whitespace?)))
+
 (define (get-install-dirs impl cfg)
   (define (guile-eval expr)
     (guard (exn (else #f))
@@ -1304,9 +1332,7 @@
            (cons share-dir (delete share-dir dirs))
            dirs)))
     ((chicken)
-     (let ((dir (string-trim
-                 (process->string '(csi -p "(repository-path)"))
-                 char-whitespace?)))
+     (let ((dir (get-chicken-repo-path)))
        (list
         (if (file-exists? dir)  ; repository-path should always exist
             dir
@@ -1350,6 +1376,24 @@
     (else
      (list (make-path (or (conf-get cfg 'install-prefix) "/usr/local")
                       "share/snow"
+                      impl)))))
+
+(define (get-install-library-dirs impl cfg)
+  (case impl
+    ((chibi)
+     (let* ((dirs
+             (reverse
+              (cond-expand
+               (chibi (eval '(current-module-path) (environment '(chibi))))
+               (else (process->sexp
+                      '(chibi-scheme -q -p "(current-module-path)"))))))
+            (lib-dir (find (lambda (d) (string-contains d "/lib")) dirs)))
+       (if lib-dir
+           (cons lib-dir (delete lib-dir dirs))
+           dirs)))
+    (else
+     (list (make-path (or (conf-get cfg 'install-prefix) "/usr/local")
+                      "lib"
                       impl)))))
 
 (define (scheme-script-command impl cfg)
@@ -1630,7 +1674,7 @@
     (car (get-install-dirs impl cfg)))
    ((conf-get cfg 'install-prefix)
     => (lambda (prefix) (make-path prefix "lib" impl)))
-   (else (make-path "/usr/local/lib" impl))))
+   (else (car (get-install-library-dirs impl cfg)))))
 
 (define (get-install-binary-dir impl cfg)
   (cond

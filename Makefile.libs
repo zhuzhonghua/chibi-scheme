@@ -21,6 +21,7 @@ MKDIR     ?= $(INSTALL) -d
 RMDIR     ?= rmdir
 TAR       ?= tar
 DIFF      ?= diff
+GIT       ?= git
 GREP      ?= grep
 FIND      ?= find
 SYMLINK   ?= ln -s
@@ -29,12 +30,18 @@ LDCONFIG  ?= ldconfig
 PREFIX    ?= /usr/local
 BINDIR    ?= $(PREFIX)/bin
 LIBDIR    ?= $(PREFIX)/lib
-SOLIBDIR  ?= $(PREFIX)/lib
+SOLIBDIR  ?= $(LIBDIR)
 INCDIR    ?= $(PREFIX)/include/chibi
 MODDIR    ?= $(PREFIX)/share/chibi
-BINMODDIR ?= $(PREFIX)/lib/chibi
+BINMODDIR ?= $(SOLIBDIR)/chibi
 PKGCONFDIR ?= $(SOLIBDIR)/pkgconfig
 MANDIR    ?= $(PREFIX)/share/man/man1
+
+SNOWPREFIX    ?= /usr/local
+SNOWLIBDIR    ?= $(SNOWPREFIX)/lib
+SNOWSOLIBDIR  ?= $(SNOWLIBDIR)
+SNOWMODDIR    ?= $(SNOWPREFIX)/share/snow
+SNOWBINMODDIR ?= $(SNOWSOLIBDIR)/snow
 
 DESTDIR   ?=
 
@@ -51,8 +58,11 @@ all-libs: $(COMPILED_LIBS)
 lib/%.c: lib/%.stub $(CHIBI_FFI_DEPENDENCIES)
 	$(CHIBI_FFI) $<
 
+lib/chibi/pty$(SO): lib/chibi/pty.c $(INCLUDES) libchibi-scheme$(SO)
+	$(CC) $(CLIBFLAGS) $(CLINKFLAGS) $(XCPPFLAGS) $(XCFLAGS) $(LDFLAGS) -o $@ $< -L. $(RLDFLAGS) $(XLIBS) -lchibi-scheme -lutil
+
 lib/%$(SO): lib/%.c $(INCLUDES) libchibi-scheme$(SO)
-	$(CC) $(CLIBFLAGS) $(CLINKFLAGS) $(XCPPFLAGS) $(XCFLAGS) $(LDFLAGS) -o $@ $< -L. $(XLIBS) -lchibi-scheme
+	$(CC) $(CLIBFLAGS) $(CLINKFLAGS) $(XCPPFLAGS) $(XCFLAGS) $(LDFLAGS) -o $@ $< -L. $(RLDFLAGS) $(XLIBS) -lchibi-scheme
 
 doc-libs: $(HTML_LIBS)
 

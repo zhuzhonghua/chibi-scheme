@@ -78,6 +78,7 @@
     (lambda (out) (html-display-escaped-string str out))))
 
 ;;> Render (valid, expanded) \var{sxml} as html.
+;;> \var{@raw} tag is considered safe text and not processed or escaped.
 (define (sxml-display-as-html sxml . o)
   (let ((out (if (pair? o) (car o) (current-output-port))))
     (let lp ((sxml sxml))
@@ -93,6 +94,9 @@
                   (display (html-tag->string tag (cdar rest)) out)
                   (for-each lp (cdr rest))
                   (display "</" out) (display tag out) (display ">" out))
+                 ((and (eq? '@raw tag)
+                       (string? (car rest)))
+                  (display (car rest) out))
                  (else
                   (display (html-tag->string tag '()) out)
                   (for-each lp rest)
@@ -101,7 +105,8 @@
        ((null? sxml))
        (else (html-display-escaped-string sxml out))))))
 
-;;> Render \var{sxml} as \var{sxml}.
+;;> Render \var{sxml} as \var{xml}.
+;;> \var{@raw} tag is considered safe text and not processed or escaped.
 (define (sxml->xml sxml)
   (call-with-output-string
     (lambda (out) (sxml-display-as-html sxml out))))
@@ -141,9 +146,9 @@
              (if (and (pair? (cdr sxml)) (eq? '@ (cadr sxml)))
                  (cddr sxml)
                  (cdr sxml)))
-            (if (memq tag '(p br h1 h2 h3 h4 h5 h6))
+            (if (memq tag '(p li br h1 h2 h3 h4 h5 h6))
                 (newline out)))
            (else
             (for-each lp sxml)))))
        ((null? sxml))
-       (else (html-display-escaped-string sxml out))))))
+       (else (display sxml out))))))

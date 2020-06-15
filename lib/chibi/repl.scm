@@ -63,9 +63,11 @@
                (ls (cdr strings)))
         (if (or (null? ls) (zero? len))
             len
-            (lp (min len (string-cursor->index prev (string-mismatch prev (car ls))))
-                (car ls)
-                (cdr ls))))))
+            (call-with-values (lambda () (string-mismatch prev (car ls)))
+              (lambda (i1 i2)
+                (lp (min len (string-cursor->index prev i1))
+                    (car ls)
+                    (cdr ls))))))))
 
 (define (make-sexp-buffer-completer)
   (buffer-make-completer
@@ -164,6 +166,13 @@
 ;;> \item{\scheme|{\meta-module-is <module>}| - switch the meta module to \var{<module>}}
 ;;> \item{\scheme|{\exit}| - exit the REPL}
 ;;> ]
+
+;;> The results of the last ten successful evaluations are available
+;;> via a history facility. \var{$0} holds the most recent result
+;;> while \var{$9} holds the tenth-most recent result. Evaluations
+;;> yielding single values are stored as single values while evaluations
+;;> that yield multiple values are stored as lists of values. 
+
 
 (define-record-type Repl
   (make-repl
@@ -303,7 +312,93 @@
                    (lambda (a b)
                      (string<? (write-to-string a) (write-to-string b))))))
            (else
-            (display "... none found.\n" out))))))))))
+            (display "... none found.\n" out))))))))
+   ((and (exception? exn)
+         (equal? "couldn't find import" (exception-message exn))
+         (pair? (exception-irritants exn)))
+    (let* ((mod-name (car (exception-irritants exn)))
+           (mod-file (module-name->file mod-name))
+           (scm-file (string-append
+                      (substring mod-file
+                                 0
+                                 (- (string-length mod-file) 4))
+                      ".scm")))
+      (cond
+       ((find-module-file mod-file)
+        => (lambda (path)
+             (let ((defined-mod-name
+                     (protect (exn (else #f))
+                       (let ((x (call-with-input-file path read)))
+                         (and (pair? x)
+                              (pair? (cdr x))
+                              (eq? 'define-library (car x))
+                              (cadr x))))))
+               (cond
+                ((not defined-mod-name)
+                 (display "File '" out)
+                 (display path out)
+                 (display "' does not appear to define module " out)
+                 (display mod-name out)
+                 (display ".\n" out))
+                ((equal? defined-mod-name mod-name)
+                 (display "File '" out)
+                 (display path out)
+                 (display "' failed to define module " out)
+                 (display mod-name out)
+                 (display ".\n" out))
+                (else
+                 (display "Expected file '" out)
+                 (display path out)
+                 (display "' to define module " out)
+                 (display mod-name out)
+                 (display " but found " out)
+                 (display defined-mod-name out)
+                 (display ".\n" out))))))
+       (else
+        (display "Searched module path " out)
+        (display (current-module-path) out)
+        (display " for " out)
+        (write mod-file out)
+        (display ".\n" out)
+        (cond
+         ((find-module-file scm-file)
+          => (lambda (file)
+               (display "But found non-module-definition file " out)
+               (write file out)
+               (display ".\nNote module files must end in \".sld\".\n" out)))))))
+    )))
+
+(define undefined-value (if #f #f))
+
+(define $0 undefined-value)
+(define $1 undefined-value)
+(define $2 undefined-value)
+(define $3 undefined-value)
+(define $4 undefined-value)
+(define $5 undefined-value)
+(define $6 undefined-value)
+(define $7 undefined-value)
+(define $8 undefined-value)
+(define $9 undefined-value)
+
+(define (push-history-value! value)
+  (set! $9 $8)
+  (set! $8 $7)
+  (set! $7 $6)
+  (set! $6 $5)
+  (set! $5 $4)
+  (set! $4 $3)
+  (set! $3 $2)
+  (set! $2 $1)
+  (set! $1 $0)
+  (set! $0 value))
+
+(define (push-history-value-maybe! value)
+  (cond ((eq? value undefined-value) undefined-value)
+        ((not (list? value)) (push-history-value! value))
+        ((= (length value) 0) undefined-value)
+        ((= (length value) 1) (push-history-value! (car value)))
+        (else (push-history-value! value))))
 
 (define (repl/eval rp expr-list)
   (let ((out (repl-out rp)))
@@ -330,6 +425,7 @@
                          (cond
                           ((not (or (null? res-list)
                                     (equal? res-list (list (if #f #f)))))
+                           (push-history-value-maybe! res-list)
                            (write/ss (car res-list) out)
                            (for-each
                             (lambda (res)
@@ -466,4 +562,5 @@
             (lambda (out) (write (history->list (repl-history rp)) out)))))))
 
 (define (main args)
+  (import (only (chibi repl) $0 $1 $2 $3 $4 $5 $6 $7 $8 $9))
   (repl))

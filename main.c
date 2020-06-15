@@ -31,7 +31,8 @@
 
 #if SEXP_USE_MAIN_HELP
 void sexp_usage(int err) {
-  printf("usage: chibi-scheme [<options> ...] [<file> <args> ...]\n"
+  FILE *out = err ? stderr : stdout;
+  fprintf(out, "usage: chibi-scheme [<options> ...] [<file> <args> ...]\n"
 #if SEXP_USE_FOLD_CASE_SYMS
          "  -f           - case-fold symbols\n"
 #endif
@@ -181,11 +182,13 @@ static sexp_uint_t multiplier (char c) {
 #endif
 
 static char* make_import(const char* prefix, const char* mod, const char* suffix) {
-  int preflen = strlen(prefix), len = preflen + strlen(mod) + strlen(suffix);
+  int preflen = strlen(prefix), modlen = strlen(mod);
+  int len = preflen + modlen + strlen(suffix);
+  int suflen = strlen(suffix) + (mod[0] == '(' ? 1 : 0);
   char *p, *impmod = (char*) malloc(len+1);
-  strcpy(impmod, prefix);
-  strcpy(impmod+preflen, mod[0] == '(' ? mod + 1 : mod);
-  strcpy(impmod+len-strlen(suffix)-(mod[0] == '(' ? 1 : 0),  suffix);
+  snprintf(impmod, len, "%s", prefix);
+  snprintf(impmod+preflen, len-preflen, "%s", mod[0] == '(' ? mod + 1 : mod);
+  snprintf(impmod+len-suflen, suflen+1, "%s", suffix);
   impmod[len] = '\0';
   for (p=impmod; *p; p++)
     if (*p == '.') *p=' ';
@@ -362,6 +365,7 @@ sexp run_main (int argc, char **argv) {
       arg = ((argv[i][2] == '\0') ? argv[++i] : argv[i]+2);
       if (c == 'x') {
         if (strcmp(arg, "chibi.primitive") == 0) {
+          argv[i][2] = '\0';
           goto load_primitive;
         } else if (strcmp(arg, "scheme.small") == 0) {
           load_init(0);
@@ -422,7 +426,7 @@ sexp run_main (int argc, char **argv) {
         i++;
         goto done_options;
       }
-      sexp_usage(1);
+      sexp_usage(strcmp(argv[i]+2, "help") != 0);
     case 'h':
       arg = ((argv[i][2] == '\0') ? argv[++i] : argv[i]+2);
       check_nonull_arg('h', arg);
@@ -543,7 +547,8 @@ sexp run_main (int argc, char **argv) {
     if (i < argc)
       for (j=argc-1; j>=i; j--)
         args = sexp_cons(ctx, tmp=sexp_c_string(ctx,argv[j],-1), args);
-    if (i >= argc || main_symbol != NULL)
+    /* if no script name, use interpreter name */
+    if (i >= argc || main_module != NULL)
       args = sexp_cons(ctx, tmp=sexp_c_string(ctx,argv[0],-1), args);
     load_init(i < argc || main_symbol != NULL);
     sexp_set_parameter(ctx, sexp_meta_env(ctx), sym=sexp_intern(ctx, sexp_argv_symbol, -1), args);
@@ -616,7 +621,7 @@ sexp run_main (int argc, char **argv) {
         sym = sexp_intern(ctx, main_symbol, -1);
         tmp = sexp_env_ref(ctx, env, sym, SEXP_FALSE);
         if (sexp_procedurep(tmp)) {
-          args = sexp_list1(ctx, sexp_cdr(args));
+          args = sexp_list1(ctx, args);
           check_exception(ctx, sexp_apply(ctx, tmp, args));
         } else {
           fprintf(stderr, "couldn't find main binding: %s in %s\n", main_symbol, main_module ? main_module : argv[i]);

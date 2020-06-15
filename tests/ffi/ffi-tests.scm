@@ -63,14 +63,49 @@ int cube(int x) {
 int sub(int x, int y) {
   return x - y;
 }
+int inc(int x, unsigned char y) {
+  return x + y;
+}
 ")
    (define-c int zero ())
    (define-c int cube (int))
-   (define-c int sub (int int)))
+   (define-c int sub (int int))
+   (define-c int inc (int unsigned-char)))
  (test 0 (zero))
  (test 4 (sub 7 3))
  (test -27 (cube -3))
- (test -3 (sub (zero) 3)))
+ (test -3 (sub (zero) 3))
+ (test 6 (inc 5 1)))
+
+(test-ffi
+ "params"
+ (begin
+   (c-declare "
+int add4(int a, int b, int c, int d) {
+  return a+b+c+d;
+}
+int add5(int a, int b, int c, int d, int e) {
+  return a+b+c+d+e;
+}
+int add6(int a, int b, int c, int d, int e, int f) {
+  return a+b+c+d+e+f;
+}
+")
+   (define-c int add4 (int int int int))
+   (define-c int add5 (int int int int int))
+   (define-c int add6 (int int int int int int))
+   (define-c int (add3or4 "add4") (int int int (default 0 int)))
+   (define-c int (add4or5 "add5") (int int int int (default 0 int)))
+   (define-c int (add5or6 "add6") (int int int int int (default 0 int))))
+ (test 4321 (add4 1 20 300 4000))
+ (test 54321 (add5 1 20 300 4000 50000))
+ (test 654321 (add6 1 20 300 4000 50000 600000))
+ (test 321 (add3or4 1 20 300))
+ (test 4321 (add3or4 1 20 300 4000))
+ (test 4321 (add4or5 1 20 300 4000))
+ (test 54321 (add4or5 1 20 300 4000 50000))
+ (test 54321 (add5or6 1 20 300 4000 50000))
+ (test 654321 (add5or6 1 20 300 4000 50000 600000)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; More detailed tests on integer conversions and overflow.
@@ -546,6 +581,24 @@ struct vec2box {
      (let ((v (make-vec2 17.0 23.0)))
        (list (vec2-x v) (vec2-y v))))
  (test-assert (vec2box? (make-vec2box (make-vec2 17.0 23.0)))))
+
+(test-ffi
+ "uniform vectors"
+ (begin
+   (c-declare "
+float f32vector_ref(float* uv, int i) {
+  return uv[i];
+}
+void f32vector_set(float* uv, int i, float v) {
+  uv[i] = v;
+}
+")
+   (define-c float f32vector-ref (f32vector int))
+   (define-c void f32vector-set (f32vector int float)))
+ (let ((uv #f32(0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7)))
+   (test 0.3 (f32vector-ref uv 3))
+   (f32vector-set uv 3 3.14)
+   (test 3.14 (f32vector-ref uv 3))))
 
 ;; TODO: virtual method accessors
 

@@ -76,12 +76,17 @@
 ;;> Returns true iff \var{x} is a config object.
 
 (define-record-type Config
-  (make-conf alist parent source timestamp)
+  (%make-conf alist parent source timestamp)
   conf?
   (alist conf-alist conf-alist-set!)
   (parent conf-parent conf-parent-set!)
   (source conf-source conf-source-set!)
   (timestamp conf-timestamp conf-timestamp-set!))
+
+(define (make-conf alist parent source timestamp)
+  (if (not (alist? alist))
+      (error "config requires an alist" alist)
+      (%make-conf alist parent source timestamp)))
 
 (define (assq-tail key alist)
   (let lp ((ls alist))
@@ -106,7 +111,12 @@
      (else (lp (cdr ls) (cons (car ls) rev))))))
 
 (define (read-from-file file . opt)
-  (guard (exn (else (and (pair? opt) (car opt))))
+  (guard (exn
+          (else
+           (warn "couldn't load config:" file)
+           (print-exception exn)
+           (print-stack-trace exn)
+           (and (pair? opt) (car opt))))
     (call-with-input-file file read)))
 
 (define (alist? x)

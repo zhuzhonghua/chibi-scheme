@@ -38,6 +38,9 @@ _PARAM("current-output-port", _I(SEXP_OPORT)),
 _PARAM("current-error-port", _I(SEXP_OPORT)),
 _PARAM("current-exception-handler", _I(SEXP_PROCEDURE)),
 _PARAM("interaction-environment", _I(SEXP_ENV)),
+_PARAM("current-usage-environment", _I(SEXP_ENV)),
+_PARAM("current-transformer-environment", _I(SEXP_ENV)),
+_PARAM("current-renamer", _I(SEXP_PROCEDURE)),
 _PARAM("command-line", SEXP_NULL),
 _OP(SEXP_OPC_GETTER, SEXP_OP_CAR, 1, 0, _I(SEXP_OBJECT), _I(SEXP_PAIR), SEXP_FALSE, SEXP_FALSE, 0, "car", 0, NULL),
 _OP(SEXP_OPC_SETTER, SEXP_OP_SET_CAR, 2, 0, SEXP_VOID, _I(SEXP_PAIR), _I(SEXP_OBJECT), SEXP_FALSE, 0, "set-car!", 0, NULL),
@@ -45,6 +48,8 @@ _OP(SEXP_OPC_GETTER, SEXP_OP_CDR, 1, 0, _I(SEXP_OBJECT), _I(SEXP_PAIR), SEXP_FAL
 _OP(SEXP_OPC_SETTER, SEXP_OP_SET_CDR, 2, 0, SEXP_VOID, _I(SEXP_PAIR), _I(SEXP_OBJECT), SEXP_FALSE, 0, "set-cdr!", 0, NULL),
 _GETTER("pair-source", SEXP_PAIR, 2),
 _SETTER("pair-source-set!", SEXP_PAIR, 2),
+_GETTER("syntactic-closure-rename", SEXP_SYNCLO, 3),
+_SETTER("syntactic-closure-set-rename!", SEXP_SYNCLO, 3),
 _OP(SEXP_OPC_GETTER, SEXP_OP_VECTOR_REF, 2, 0, _I(SEXP_OBJECT), _I(SEXP_VECTOR), _I(SEXP_FIXNUM), SEXP_FALSE, 0, "vector-ref", 0, NULL),
 _OP(SEXP_OPC_SETTER, SEXP_OP_VECTOR_SET, 3, 0, SEXP_VOID, _I(SEXP_VECTOR), _I(SEXP_FIXNUM), _I(SEXP_OBJECT), 0, "vector-set!", 0, NULL),
 _OP(SEXP_OPC_GETTER, SEXP_OP_VECTOR_LENGTH, 1, 0, _I(SEXP_FIXNUM), _I(SEXP_VECTOR), SEXP_FALSE, SEXP_FALSE, 0, "vector-length", 0, NULL),
@@ -220,13 +225,13 @@ _FN1(_I(SEXP_NUMBER), _I(SEXP_NUMBER), "ceiling", 0, sexp_ceiling),
 #endif
 _FN2(_I(SEXP_NUMBER), _I(SEXP_NUMBER), _I(SEXP_NUMBER), "expt", 0, sexp_expt_op),
 #if SEXP_USE_UTF8_STRINGS
-_FN2(_I(SEXP_FIXNUM), _I(SEXP_STRING), _I(SEXP_FIXNUM), "string-index->cursor", 0, sexp_string_index_to_cursor),
-_FN2(_I(SEXP_FIXNUM), _I(SEXP_STRING), _I(SEXP_FIXNUM), "string-cursor->index", 0, sexp_string_cursor_to_index),
+_FN2(_I(SEXP_STRING_CURSOR), _I(SEXP_STRING), _I(SEXP_FIXNUM), "string-index->cursor", 0, sexp_string_index_to_cursor),
+_FN2(_I(SEXP_FIXNUM), _I(SEXP_STRING), _I(SEXP_STRING_CURSOR), "string-cursor->index", 0, sexp_string_cursor_to_index),
 _FN2(_I(SEXP_CHAR), _I(SEXP_STRING), _I(SEXP_FIXNUM), "string-ref", 0, sexp_string_utf8_index_ref),
 #if SEXP_USE_MUTABLE_STRINGS
 _FN3(SEXP_VOID, _I(SEXP_STRING), _I(SEXP_FIXNUM), _I(SEXP_CHAR), "string-set!", 0, sexp_string_utf8_index_set),
 #endif
-_FN3OPT(_I(SEXP_STRING), _I(SEXP_STRING), _I(SEXP_FIXNUM), _I(SEXP_FIXNUM), "substring-cursor", SEXP_FALSE, sexp_substring_op),
+_FN3OPT(_I(SEXP_STRING), _I(SEXP_STRING), _I(SEXP_STRING_CURSOR), _I(SEXP_STRING_CURSOR), "substring-cursor", SEXP_FALSE, sexp_substring_op),
 _FN3OPT(_I(SEXP_STRING), _I(SEXP_STRING), _I(SEXP_FIXNUM), _I(SEXP_FIXNUM), "substring", SEXP_FALSE, sexp_utf8_substring_op),
 #else
 _FN3OPT(_I(SEXP_STRING), _I(SEXP_STRING), _I(SEXP_FIXNUM), _I(SEXP_FIXNUM), "substring", SEXP_FALSE, sexp_substring_op),
@@ -253,9 +258,10 @@ _OP(SEXP_OPC_SETTER, SEXP_OP_SLOTN_SET, 4, 0, SEXP_VOID, _I(SEXP_OBJECT), _I(SEX
 #include "opt/plan9-opcodes.c"
 #else
 _FN1(_I(SEXP_OBJECT), _I(SEXP_IPORT), "port-fileno", 0, sexp_get_port_fileno),
+_FN1(_I(SEXP_BOOLEAN), _I(SEXP_IPORT), "stream-port?", 0, sexp_stream_portp_op),
 #endif
-#if SEXP_USE_MODULES
 _FN0(_I(SEXP_ENV), "current-environment", 0, sexp_current_environment),
+#if SEXP_USE_MODULES
 _FN1(_I(SEXP_ENV), _I(SEXP_ENV), "set-current-environment!", 0, sexp_set_current_environment),
 _FN0(_I(SEXP_ENV), "%meta-env", 0, sexp_meta_environment),
 _FN1(SEXP_NULL, _I(SEXP_ENV), "env-exports", 0, sexp_env_exports_op),
@@ -278,6 +284,10 @@ _FN0(SEXP_VOID, "print-vm-profile", 0, sexp_print_vm_profile),
 _OP(SEXP_OPC_GENERIC, SEXP_OP_FORCE, 1, 0, _I(SEXP_OBJECT), _I(SEXP_OBJECT), SEXP_FALSE, SEXP_FALSE, 0, "force", 0, NULL),
 _FN2(_I(SEXP_PROMISE), _I(SEXP_BOOLEAN), _I(SEXP_OBJECT), "promise", 0, sexp_make_promise),
 _OP(SEXP_OPC_TYPE_PREDICATE, SEXP_OP_TYPEP,  1, 0, _I(SEXP_BOOLEAN), _I(SEXP_OBJECT), SEXP_FALSE, SEXP_FALSE, 0, "promise?", _I(SEXP_PROMISE), 0),
+#endif
+#if SEXP_USE_UNIFORM_VECTOR_LITERALS
+_FN2(_I(SEXP_UNIFORM_VECTOR), _I(SEXP_FIXNUM), _I(SEXP_OBJECT), "list->uvector", 0, sexp_list_to_uvector_op),
+_FN2(_I(SEXP_UNIFORM_VECTOR), _I(SEXP_FIXNUM), _I(SEXP_FIXNUM), "make-uvector", 0, sexp_make_uvector_op),
 #endif
 _OP(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
 };

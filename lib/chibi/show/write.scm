@@ -1,5 +1,5 @@
 ;; write.scm - written formatting, the default displayed for non-string/chars
-;; Copyright (c) 2006-2013 Alex Shinn.  All rights reserved.
+;; Copyright (c) 2006-2019 Alex Shinn.  All rights reserved.
 ;; BSD-style license: http://synthcode.com/license.txt
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -7,28 +7,27 @@
 ;;> \section{String utilities}
 
 (define (write-to-string x)
-  (let ((out (open-output-string)))
-    (write x out)
-    (get-output-string out)))
+  (call-with-output-string (lambda (out) (write x out))))
 
 (define (string-replace-all str ch1 ch2)
   (let ((out (open-output-string)))
     (string-for-each
-     (lambda (ch) (write-char (if (eqv? ch ch1) ch2 ch) out))
+     (lambda (ch) (display (if (eqv? ch ch1) ch2 ch) out))
      str)
     (get-output-string out)))
 
 (define (string-intersperse-right str sep rule)
-  (let lp ((i (string-length str))
-           (rule rule)
-           (res '()))
-    (let* ((offset (if (pair? rule) (car rule) rule))
-           (i2 (if offset (- i offset) 0)))
-      (if (<= i2 0)
-          (apply string-append (cons (substring str 0 i) res))
-          (lp i2
-              (if (pair? rule) (cdr rule) rule)
-              (cons sep (cons (substring str i2 i) res)))))))
+  (let ((start (string-cursor-start str)))
+    (let lp ((i (string-cursor-end str))
+             (rule rule)
+             (res '()))
+      (let* ((offset (if (pair? rule) (car rule) rule))
+             (i2 (if offset (string-cursor-back str i offset) start)))
+        (if (string-cursor<=? i2 start)
+            (apply string-append (cons (substring-cursor str start i) res))
+            (lp i2
+                (if (and (pair? rule) (not (null? (cdr rule)))) (cdr rule) rule)
+                (cons sep (cons (substring-cursor str i2 i) res))))))))
 
 ;;> Outputs the string str, escaping any quote or escape characters.
 ;;> If esc-ch, which defaults to #\\, is #f, escapes only the
@@ -44,7 +43,7 @@
     (let ((esc-str (cond ((char? esc) (string esc))
                          ((not esc) (string quot))
                          (else esc))))
-      (fn (output)
+      (fn ((orig-output output))
         (define (output* str)
           (let ((start (string-cursor-start str))
                 (end (string-cursor-end str)))
@@ -52,19 +51,19 @@
               (define (collect)
                 (if (eq? i j) "" (substring-cursor str i j)))
               (if (string-cursor>=? j end)
-                  (output (collect))
+                  (orig-output (collect))
                   (let ((c (string-cursor-ref str j))
                         (j2 (string-cursor-next str j)))
                     (cond
                      ((or (eqv? c quot) (eqv? c esc))
-                      (each (output (collect))
-                            (output esc-str)
+                      (each (orig-output (collect))
+                            (orig-output esc-str)
                             (fn () (lp j j2))))
                      ((rename c)
                       => (lambda (c2)
-                           (each (output (collect))
-                                 (output esc-str)
-                                 (output (if (char? c2) (string c2) c2))
+                           (each (orig-output (collect))
+                                 (orig-output esc-str)
+                                 (orig-output (if (char? c2) (string c2) c2))
                                  (fn () (lp j2 j2)))))
                      (else
                       (lp i j2))))))))
@@ -126,7 +125,10 @@
              (comma-rule (default comma comma-rule))
              (comma-sep (default commasep comma-sep))
              (dec-sep (default decsep
-                        (or decimal-sep (if (eqv? comma-sep #\.) #\, #\.)))))
+                        (or decimal-sep (if (eqv? comma-sep #\.) #\, #\.))))
+             (dec-ls (if (char? dec-sep)
+                         (list dec-sep)
+                         (reverse (string->list dec-sep)))))
         ;; General formatting utilities.
         (define (get-scale q)
           (expt radix (- (integer-log q radix) 1)))
@@ -164,7 +166,9 @@
               (let lp ((res res))
                 (cond
                  ((and (pair? res) (eqv? 0 (car res))) (lp (cdr res)))
-                 ((and (pair? res) (eqv? dec-sep (car res)))
+                 ((and (pair? res)
+                       (eqv? (car dec-ls) (car res))
+                       (null? (cdr dec-ls)))
                   (if inexact?
                       (cons 0 res)      ; "1.0"
                       (cdr res)))       ; "1"
@@ -185,7 +189,7 @@
                ;; 15 decimals.
                ((if precision (< i precision) (< i 16))
                 (let ((res (if (zero? i)
-                               (cons dec-sep (if (null? res) (cons 0 res) res))
+                               (append dec-ls (if (null? res) (cons 0 res) res))
                                res))
                       (q (quotient n d)))
                   (cond
@@ -218,7 +222,8 @@
                ((string-cursor<? (string-find s #\e) end)
                 (gen-general n))
                ((string-cursor=? dec end)
-                (string-append s "." (make-string precision #\0)))
+                (string-append s (if (char? dec-sep) (string dec-sep) dec-sep)
+                               (make-string precision #\0)))
                ((<= digits precision)
                 (string-append s (make-string (- precision digits -1) #\0)))
                (else
@@ -248,17 +253,16 @@
           (cond
            (precision
             (gen-fixed n))
-           ((and (exact? n) (not (integer? n)))
-            (string-append (gen-positive-real (numerator n))
-                           "/"
-                           (gen-positive-real (denominator n))))
            ((memv radix (if (exact? n) '(2 8 10 16) '(10)))
             (number->string n radix))
            (else
             (gen-general n))))
         ;; Insert commas according to the current comma-rule.
         (define (insert-commas str)
-          (let* ((dec-pos (string-find str dec-sep))
+          (let* ((dec-pos (if (string? dec-sep)
+                              (or (string-contains str dec-sep)
+                                  (string-cursor-end str))
+                              (string-find str dec-sep)))
                  (left (substring-cursor str (string-cursor-start str) dec-pos))
                  (right (substring-cursor str dec-pos))
                  (sep (cond ((char? comma-sep) (string comma-sep))
@@ -271,12 +275,16 @@
         ;; Post-process a positive real number with decimal char fixup
         ;; and commas as needed.
         (define (wrap-comma n)
-          (let* ((s0 (gen-positive-real n))
-                 (s1 (if (and (char? dec-sep)
-                              (not (eqv? #\. dec-sep)))
-                         (string-replace-all s0 #\. dec-sep)
-                         s0)))
-            (if comma-rule (insert-commas s1) s1)))
+          (if (and (not precision) (exact? n) (not (integer? n)))
+              (string-append (wrap-comma (numerator n))
+                             "/"
+                             (wrap-comma (denominator n)))
+              (let* ((s0 (gen-positive-real n))
+                     (s1 (if (or (eqv? #\. dec-sep)
+                                 (equal? "." dec-sep))
+                             s0
+                             (string-replace-all s0 #\. dec-sep))))
+                (if comma-rule (insert-commas s1) s1))))
         ;; Wrap the sign of a real number, forcing a + prefix or using
         ;; parentheses (n) for negatives according to sign-rule.
 
@@ -294,25 +302,40 @@
         (define (wrap-sign n sign-rule)
           (cond
            ((negative?* n)
-            (if (char? sign-rule)
-                (string-append (string sign-rule)
-                               (wrap-comma (- n))
-                               (string (char-mirror sign-rule)))
-                (string-append "-" (wrap-comma (- n)))))
+            (cond
+             ((char? sign-rule)
+              (string-append (string sign-rule)
+                             (wrap-comma (- n))
+                             (string (char-mirror sign-rule))))
+             ((pair? sign-rule)
+              (string-append (car sign-rule)
+                             (wrap-comma (- n))
+                             (cdr sign-rule)))
+             (else
+              (string-append "-" (wrap-comma (- n))))))
            ((eq? #t sign-rule)
             (string-append "+" (wrap-comma n)))
            (else
             (wrap-comma n))))
         ;; Format a single real number with padding as necessary.
         (define (format n sign-rule)
-          (let ((s (wrap-sign n sign-rule)))
-            (let* ((dec-pos (if decimal-align
-                                (string-cursor->index s (string-find s dec-sep))
+          (cond
+           ((finite? n)
+            (let* ((s (wrap-sign n sign-rule))
+                   (dec-pos (if decimal-align
+                                (string-cursor->index
+                                 s
+                                 (if (char? dec-sep)
+                                     (string-find s dec-sep)
+                                     (or (string-contains s dec-sep)
+                                         (string-cursor-end s))))
                                 0))
                    (diff (- (or decimal-align 0) dec-pos 1)))
               (if (positive? diff)
                   (string-append (make-string diff #\space) s)
-                  s))))
+                  s)))
+           (else
+            (number->string n))))
         ;; Write any number.
         (define (write-complex n)
           (cond
@@ -348,7 +371,7 @@
                            (if (= base 1024) names2 names10)))
                (k (min (exact ((if (negative? log-n) ceiling floor)
                                (/ (abs log-n) (log base))))
-                       (vector-length names)))
+                       (- (vector-length names) 1)))
                (n2 (round-to (/ n (expt base (if (negative? log-n) (- k) k)))
                              10)))
           (each (if (integer? n2)
@@ -370,7 +393,7 @@
            (let ((prec (if (and (pair? args) (pair? (cdr args)))
                            (cadr args)
                            precision)))
-             (if prec
+             (if (and prec (not (zero? prec)))
                  (let* ((dec-sep
                          (or decimal-sep
                              (if (eqv? #\. comma-sep) #\, #\.)))
@@ -384,77 +407,15 @@
          (displayed str)))))
 
 (define (numeric/comma n . o)
-  (fn (comma-rule)
-    (with ((comma-rule (or comma-rule 3)))
+  (fn ((orig-comma-rule comma-rule))
+    (with ((comma-rule (or orig-comma-rule 3)))
       (apply numeric n o))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; shared structure utilities
-
-(define (extract-shared-objects x cyclic-only?)
-  (let ((seen (make-hash-table eq?)))
-    ;; find shared references
-    (let find ((x x))
-      (cond ;; only interested in pairs and vectors (and records later)
-       ((or (pair? x) (vector? x))
-        ;; increment the count
-        (hash-table-update!/default seen x (lambda (n) (+ n 1)) 0)
-        ;; walk if this is the first time
-        (cond
-         ((> (hash-table-ref seen x) 1))
-         ((pair? x)
-          (find (car x))
-          (find (cdr x)))
-         ((vector? x)
-          (do ((i 0 (+ i 1)))
-              ((= i (vector-length x)))
-            (find (vector-ref x i)))))
-        ;; delete if this shouldn't count as a shared reference
-        (if (and cyclic-only? (<= (hash-table-ref/default seen x 0) 1))
-            (hash-table-delete! seen x)))))
-    ;; extract shared references
-    (let ((res (make-hash-table eq?))
-          (count 0))
-      (hash-table-walk
-       seen
-       (lambda (k v)
-         (cond
-          ((> v 1)
-           (hash-table-set! res k (cons count #f))
-           (set! count (+ count 1))))))
-      (cons res 0))))
-
-(define (maybe-gen-shared-ref cell shares)
-  (cond
-    ((pair? cell)
-     (set-car! cell (cdr shares))
-     (set-cdr! cell #t)
-     (set-cdr! shares (+ (cdr shares) 1))
-     (each "#" (number->string (car cell)) "="))
-    (else nothing)))
-
-(define (call-with-shared-ref obj shares proc)
-  (let ((cell (hash-table-ref/default (car shares) obj #f)))
-    (if (and (pair? cell) (cdr cell))
-        (each "#" (number->string (car cell)) "#")
-        (each (maybe-gen-shared-ref cell shares) proc))))
-
-(define (call-with-shared-ref/cdr obj shares proc . o)
-  (let ((sep (displayed (if (pair? o) (car o) "")))
-        (cell (hash-table-ref/default (car shares) obj #f)))
-    (cond
-      ((and (pair? cell) (cdr cell))
-       (each sep ". #" (number->string (car cell)) "#"))
-      ((pair? cell)
-       (each sep ". " (maybe-gen-shared-ref cell shares) "(" proc ")"))
-      (else
-       (each sep proc)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; written
 
 (define (write-with-shares obj shares)
-  (fn (radix precision)
+  (fn ((orig-radix radix) precision)
     (let ((write-number
            ;; Shortcut for numeric values.  Try to rely on
            ;; number->string for standard radixes and no precision,
@@ -462,11 +423,12 @@
            ;; radix.
            (cond
             ((and (not precision)
-                  (assv radix '((16 . "#x") (10 . "") (8 . "#o") (2 . "#b"))))
+                  (assv orig-radix
+                        '((16 . "#x") (10 . "") (8 . "#o") (2 . "#b"))))
              => (lambda (cell)
                   (lambda (n)
                     (cond
-                     ((eqv? radix 10)
+                     ((eqv? orig-radix 10)
                       (displayed (number->string n (car cell))))
                      ((exact? n)
                       (each (cdr cell) (number->string n (car cell))))
@@ -476,7 +438,7 @@
       ;; `wr' is the recursive writer closing over the shares.
       (let wr ((obj obj))
         (call-with-shared-ref
-         obj shares
+         obj shares each
          (fn ()
            (cond
             ((pair? obj)
@@ -492,7 +454,7 @@
                                  (each
                                   " "
                                   (call-with-shared-ref/cdr
-                                   rest shares
+                                   rest shares each
                                    (fn () (lp rest)))))
                                 (else
                                  (each " . " (wr rest))))))))

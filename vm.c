@@ -1001,7 +1001,7 @@ int sexp_poll_port(sexp ctx, sexp port, int inputp) {
 
 sexp sexp_apply (sexp ctx, sexp proc, sexp args) {
   unsigned char *ip;
-  sexp bc, cp, *stack = sexp_stack_data(sexp_context_stack(ctx));
+  sexp bc, cp, *stack = sexp_stack_data(sexp_context_stack(ctx)), tmp;
   sexp_sint_t i, j, k, fp, top = sexp_stack_top(sexp_context_stack(ctx));
 #if SEXP_USE_GREEN_THREADS
   sexp root_thread = ctx;
@@ -1066,6 +1066,10 @@ sexp sexp_apply (sexp ctx, sexp proc, sexp args) {
     }
     fuel = sexp_context_refuel(ctx);
     if (fuel <= 0) goto end_loop;
+    if (sexp_context_waitp(ctx)) {
+      fuel = 1;
+      goto loop;  /* we were still waiting, try again */
+    }
   }
 #endif
 #if SEXP_USE_DEBUG_VM
@@ -1166,7 +1170,10 @@ sexp sexp_apply (sexp ctx, sexp proc, sexp args) {
     tmp1 = _ARG1;
     tmp2 = _ARG2;
   apply1:
-    i = sexp_unbox_fixnum(sexp_length(ctx, tmp2)); /* number of params */
+    tmp = sexp_length(ctx, tmp2);
+    if (sexp_not(tmp))
+      sexp_raise("apply: circular list", sexp_list1(ctx, tmp2));
+    i = sexp_unbox_fixnum(tmp); /* number of params */
     sexp_ensure_stack(i + 64 + (sexp_procedurep(tmp1) ? sexp_bytecode_max_depth(sexp_procedure_code(tmp1)) : 0));
     k = sexp_unbox_fixnum(stack[fp+3]);            /* previous fp */
     j = sexp_unbox_fixnum(stack[fp]);              /* previous num params */
@@ -1300,7 +1307,7 @@ sexp sexp_apply (sexp ctx, sexp proc, sexp args) {
     _ALIGN_IP();
     sexp_context_top(ctx) = top;
     sexp_context_last_fp(ctx) = fp;
-    i = sexp_opcode_num_args(_WORD0);
+    i = sexp_opcode_num_args(_WORD0) + sexp_opcode_variadic_p(_WORD0);
     tmp1 = sexp_fcall(ctx, self, i, _WORD0);
     sexp_fcall_return(tmp1, i-1)
     break;
@@ -1717,9 +1724,9 @@ sexp sexp_apply (sexp ctx, sexp proc, sexp args) {
     else if (sexp_flonump(tmp1) && sexp_flonump(tmp2))
       _ARG1 = sexp_fp_sub(ctx, tmp1, tmp2);
     else if (sexp_flonump(tmp1) && sexp_fixnump(tmp2))
-      _ARG1 = sexp_make_flonum(ctx, sexp_flonum_value(tmp1) - (double)sexp_unbox_fixnum(tmp2));
+      _ARG1 = sexp_make_flonum(ctx, sexp_flonum_value(tmp1) - sexp_fixnum_to_double(tmp2));
     else if (sexp_fixnump(tmp1) && sexp_flonump(tmp2))
-      _ARG1 = sexp_make_flonum(ctx, (double)sexp_unbox_fixnum(tmp1) - sexp_flonum_value(tmp2));
+      _ARG1 = sexp_make_flonum(ctx, tmp1==SEXP_ZERO ? -sexp_flonum_value(tmp2) : sexp_fixnum_to_double(tmp1)-sexp_flonum_value(tmp2));
 #endif
     else sexp_raise("-: not a number", sexp_list2(ctx, tmp1, tmp2));
 #endif
@@ -1729,11 +1736,11 @@ sexp sexp_apply (sexp ctx, sexp proc, sexp args) {
     sexp_context_top(ctx) = --top;
 #if SEXP_USE_BIGNUMS
     if (sexp_fixnump(tmp1) && sexp_fixnump(tmp2)) {
-      prod = (sexp_lsint_t)sexp_unbox_fixnum(tmp1) * sexp_unbox_fixnum(tmp2);
-      if ((prod < SEXP_MIN_FIXNUM) || (prod > SEXP_MAX_FIXNUM))
+      prod = lsint_mul_sint(lsint_from_sint(sexp_unbox_fixnum(tmp1)), sexp_unbox_fixnum(tmp2));
+      if (!lsint_is_fixnum(prod))
         _ARG1 = sexp_mul(ctx, tmp1=sexp_fixnum_to_bignum(ctx, tmp1), tmp2);
       else
-        _ARG1 = sexp_make_fixnum(prod);
+        _ARG1 = sexp_make_fixnum(lsint_to_sint(prod));
     }
     else {
       _ARG1 = sexp_mul(ctx, tmp1, tmp2);
@@ -2247,6 +2254,19 @@ sexp sexp_apply2 (sexp ctx, sexp f, sexp x, sexp y) {
   } else {
     sexp_gc_preserve1(ctx, args);
     res = sexp_apply(ctx, f, args=sexp_list2(ctx, x, y));
+    sexp_gc_release1(ctx);
+  }
+  return res;
+}
+
+sexp sexp_apply3 (sexp ctx, sexp f, sexp x, sexp y, sexp z) {
+  sexp res;
+  sexp_gc_var1(args);
+  if (sexp_opcodep(f) && sexp_opcode_func(f)) {
+    res = ((sexp_proc4)sexp_opcode_func(f))(ctx, f, 3, x, y, z);
+  } else {
+    sexp_gc_preserve1(ctx, args);
+    res = sexp_apply(ctx, f, args=sexp_list3(ctx, x, y, z));
     sexp_gc_release1(ctx);
   }
   return res;

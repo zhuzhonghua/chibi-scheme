@@ -37,14 +37,52 @@ static sexp_heap sexp_heap_last (sexp_heap h) {
   return h;
 }
 
+#if !SEXP_USE_FIXED_CHUNK_SIZE_HEAPS
 static size_t sexp_heap_total_size (sexp_heap h) {
   size_t total_size = 0;
   for (; h; h=h->next)
     total_size += h->size;
   return total_size;
 }
+#endif
 
 #if ! SEXP_USE_GLOBAL_HEAP
+#if SEXP_USE_DEBUG_GC
+void sexp_debug_heap_stats (sexp_heap heap) {
+  sexp_free_list ls;
+  size_t available = 0;
+  for (ls=heap->free_list; ls; ls=ls->next)
+    available += ls->size;
+#if SEXP_USE_FIXED_CHUNK_SIZE_HEAPS
+  sexp_debug_printf("free heap: %p (chunk size: %lu): %ld / %ld used (%.2f%%)", heap, heap->chunk_size, heap->size - available, heap->size, 100*(heap->size - available) / (float)heap->size);
+#else
+  sexp_debug_printf("free heap: %p: %ld / %ld used (%.2f%%)", heap, heap->size - available, heap->size, 100*(heap->size - available) / (float)heap->size);
+#endif
+  if (heap->next)
+    sexp_debug_heap_stats(heap->next);
+}
+#endif
+
+#if SEXP_USE_TRACK_ALLOC_TIMES
+void sexp_debug_alloc_times(sexp ctx) {
+  double mean = (double) sexp_context_alloc_usecs(ctx) / sexp_context_alloc_count(ctx);
+  double var = (double) sexp_context_alloc_usecs_sq(ctx) / sexp_context_alloc_count(ctx) - mean*mean;
+  fprintf(stderr, SEXP_BANNER("alloc: mean: %0.3lfμs var: %0.3lfμs (%ld times)"), mean, var, sexp_context_alloc_count(ctx));
+}
+#endif
+
+#if SEXP_USE_TRACK_ALLOC_SIZES
+void sexp_debug_alloc_sizes(sexp ctx) {
+  int i;
+  fprintf(stderr, "alloc size histogram: {");
+  for (i=0; i<SEXP_ALLOC_HISTOGRAM_BUCKETS; ++i) {
+    if ((i+1)*sexp_heap_align(1)<100 || sexp_context_alloc_histogram(ctx)[i]>0)
+      fprintf(stderr, "  %ld:%ld", (i+1)*sexp_heap_align(1), sexp_context_alloc_histogram(ctx)[i]);
+  }
+  fprintf(stderr, "}\n");
+}
+#endif
+
 void sexp_free_heap (sexp_heap heap) {
 #if SEXP_USE_MMAP_GC
   munmap(heap, sexp_heap_pad_size(heap->size));
@@ -187,7 +225,35 @@ int sexp_valid_object_p (sexp ctx, sexp x) {
 #define sexp_gc_pass_ctx(x)
 #endif
 
-void sexp_mark_one (sexp_gc_pass_ctx(sexp ctx) sexp* types, sexp x) {
+static void sexp_mark_stack_push (sexp ctx, sexp *start, sexp *end) {
+  struct sexp_mark_stack_ptr_t *stack = sexp_context_mark_stack(ctx);
+  struct sexp_mark_stack_ptr_t **ptr = &sexp_context_mark_stack_ptr(ctx);
+  struct sexp_mark_stack_ptr_t *old = *ptr;
+
+  if (old == NULL) {
+    *ptr = stack;
+  } else if (old >= stack && old + 1 < stack + SEXP_MARK_STACK_COUNT) {
+    (*ptr)++;
+  } else {
+    *ptr = malloc(sizeof(**ptr));
+  }
+
+  (*ptr)->start = start;
+  (*ptr)->end = end;
+  (*ptr)->prev = old;
+}
+
+static void sexp_mark_stack_pop (sexp ctx) {
+  struct sexp_mark_stack_ptr_t *stack = sexp_context_mark_stack(ctx);
+  struct sexp_mark_stack_ptr_t *old = sexp_context_mark_stack_ptr(ctx);
+
+  sexp_context_mark_stack_ptr(ctx) = old->prev;
+  if (!(old >= stack && old < stack + SEXP_MARK_STACK_COUNT)) {
+    free(old);
+  }
+}
+
+static void sexp_mark_one (sexp ctx, sexp* types, sexp x) {
   sexp_sint_t len;
   sexp t, *p, *q;
   struct sexp_gc_var_t *saves;
@@ -197,26 +263,42 @@ void sexp_mark_one (sexp_gc_pass_ctx(sexp ctx) sexp* types, sexp x) {
   sexp_markedp(x) = 1;
   if (sexp_contextp(x)) {
     for (saves=sexp_context_saves(x); saves; saves=saves->next)
-      if (saves->var) sexp_mark_one(sexp_gc_pass_ctx(ctx) types, *(saves->var));
+      if (saves->var) sexp_mark_one(ctx, types, *(saves->var));
   }
   t = types[sexp_pointer_tag(x)];
   len = sexp_type_num_slots_of_object(t, x) - 1;
   if (len >= 0) {
     p = (sexp*) (((char*)x) + sexp_type_field_base(t));
     q = p + len;
-    while (p < q && ! (*q && sexp_pointerp(*q)))
+    while (p < q && (*q && sexp_pointerp(*q) ? sexp_markedp(*q) : 1))
       q--;                      /* skip trailing immediates */
     while (p < q && *q == q[-1])
       q--;                      /* skip trailing duplicates */
-    while (p < q)
-      sexp_mark_one(sexp_gc_pass_ctx(ctx) types, *p++);
-    x = *p;
+    if (p < q) {
+      sexp_mark_stack_push(ctx, p, q);
+    }
+    x = *q;
     goto loop;
   }
 }
 
+static void sexp_mark_one_start (sexp ctx, sexp* types, sexp x) {
+  struct sexp_mark_stack_ptr_t **ptr = &sexp_context_mark_stack_ptr(ctx);
+  sexp *p, *q;
+  sexp_mark_one(ctx, types, x);
+
+  while (*ptr) {
+    p = (*ptr)->start;
+    q = (*ptr)->end;
+    sexp_mark_stack_pop(ctx);
+    while (p < q) {
+      sexp_mark_one(ctx, types, *p++);
+    }
+  }
+}
+
 void sexp_mark (sexp ctx, sexp x) {
-  sexp_mark_one(sexp_gc_pass_ctx(ctx) sexp_vector_data(sexp_global(ctx, SEXP_G_TYPES)), x);
+  sexp_mark_one_start(ctx, sexp_vector_data(sexp_global(ctx, SEXP_G_TYPES)), x);
 }
 
 #if SEXP_USE_CONSERVATIVE_GC
@@ -483,11 +565,11 @@ sexp sexp_gc (sexp ctx, size_t *sum_freed) {
   sexp_reset_weak_references(ctx);
   finalized = sexp_finalize(ctx);
   res = sexp_sweep(ctx, sum_freed);
+  ++sexp_context_gc_count(ctx);
 #if SEXP_USE_TIME_GC
   getrusage(RUSAGE_SELF, &end);
   gc_usecs = (end.ru_utime.tv_sec - start.ru_utime.tv_sec) * 1000000 +
     end.ru_utime.tv_usec - start.ru_utime.tv_usec;
-  ++sexp_context_gc_count(ctx);
   sexp_context_gc_usecs(ctx) += gc_usecs;
   sexp_debug_printf("%p (freed: %lu max_freed: %lu finalized: %lu time: %luus)",
                     ctx, (sum_freed ? *sum_freed : 0), sexp_unbox_fixnum(res),
@@ -500,12 +582,13 @@ sexp_heap sexp_make_heap (size_t size, size_t max_size, size_t chunk_size) {
   sexp_free_list free, next;
   sexp_heap h;
 #if SEXP_USE_MMAP_GC
-  h =  mmap(NULL, sexp_heap_pad_size(size), PROT_READ|PROT_WRITE|PROT_EXEC,
-            MAP_ANON|MAP_PRIVATE, 0, 0);
+  h =  mmap(NULL, sexp_heap_pad_size(size), PROT_READ|PROT_WRITE,
+            MAP_ANON|MAP_PRIVATE, -1, 0);
+  if (h == MAP_FAILED) return NULL;
 #else
   h =  sexp_malloc(sexp_heap_pad_size(size));
-#endif
   if (! h) return NULL;
+#endif
   h->size = size;
   h->max_size = max_size;
   h->chunk_size = chunk_size;
@@ -534,26 +617,38 @@ int sexp_grow_heap (sexp ctx, size_t size, size_t chunk_size) {
 #if SEXP_USE_FIXED_CHUNK_SIZE_HEAPS
   for (tmp=sexp_context_heap(ctx); tmp; tmp=tmp->next)
     if (tmp->chunk_size == size) {
+      while (tmp->next && tmp->next->chunk_size == size)
+        tmp = tmp->next;
       h = tmp;
       chunk_size = size;
       break;
     }
 #endif
   cur_size = h->size;
-  new_size = sexp_heap_align(((cur_size > size) ? cur_size : size) * 2);
+  new_size = (size_t) ceil(SEXP_GROW_HEAP_FACTOR * (double) (sexp_heap_align(((cur_size > size) ? cur_size : size))));
   tmp = sexp_make_heap(new_size, h->max_size, chunk_size);
-  tmp->next = h->next;
-  h->next = tmp;
+  if (tmp) {
+    tmp->next = h->next;
+    h->next = tmp;
+  }
   return (h->next != NULL);
 }
 
 void* sexp_try_alloc (sexp ctx, size_t size) {
   sexp_free_list ls1, ls2, ls3;
   sexp_heap h;
+#if SEXP_USE_FIXED_CHUNK_SIZE_HEAPS
+  int found_fixed = 0;
+#endif
   for (h=sexp_context_heap(ctx); h; h=h->next) {
 #if SEXP_USE_FIXED_CHUNK_SIZE_HEAPS
-    if (h->chunk_size && h->chunk_size != size)
-      continue;
+    if (h->chunk_size) {
+      if (h->chunk_size != size)
+        continue;
+      found_fixed = 1;
+    } else if (found_fixed) {   /* don't use a non-fixed heap */
+      return NULL;
+    }
 #endif
     for (ls1=h->free_list, ls2=ls1->next; ls2; ls1=ls2, ls2=ls2->next) {
       if (ls2->size >= size) {
@@ -580,15 +675,52 @@ void* sexp_try_alloc (sexp ctx, size_t size) {
   return NULL;
 }
 
+#if SEXP_USE_FIXED_CHUNK_SIZE_HEAPS
+int sexp_find_fixed_chunk_heap_usage(sexp ctx, size_t size, size_t* sum_freed, size_t* total_size) {
+  sexp_heap h;
+  sexp_free_list ls;
+  size_t avail=0, total=0;
+  for (h=sexp_context_heap(ctx); h; h=h->next) {
+    if (h->chunk_size == size || !h->chunk_size) {
+      for (; h && (h->chunk_size == size || !h->chunk_size); h=h->next) {
+        total += h->size;
+        for (ls=h->free_list; ls; ls=ls->next)
+          avail += ls->size;
+      }
+      *sum_freed = avail;
+      *total_size = total;
+      return h && h->chunk_size > 0;
+    }
+  }
+  return 0;
+}
+#endif
+
 void* sexp_alloc (sexp ctx, size_t size) {
   void *res;
-  size_t max_freed, sum_freed, total_size;
+  size_t max_freed, sum_freed, total_size=0;
   sexp_heap h = sexp_context_heap(ctx);
+#if SEXP_USE_TRACK_ALLOC_SIZES
+  size_t size_bucket;
+#endif
+#if SEXP_USE_TRACK_ALLOC_TIMES
+  sexp_uint_t alloc_time;
+  struct timeval start, end;
+  gettimeofday(&start, NULL);
+#endif
   size = sexp_heap_align(size) + SEXP_GC_PAD;
+#if SEXP_USE_TRACK_ALLOC_SIZES
+  size_bucket = (size - SEXP_GC_PAD) / sexp_heap_align(1) - 1;
+  ++sexp_context_alloc_histogram(ctx)[size_bucket >= SEXP_ALLOC_HISTOGRAM_BUCKETS ? SEXP_ALLOC_HISTOGRAM_BUCKETS-1 : size_bucket];
+#endif
   res = sexp_try_alloc(ctx, size);
   if (! res) {
     max_freed = sexp_unbox_fixnum(sexp_gc(ctx, &sum_freed));
+#if SEXP_USE_FIXED_CHUNK_SIZE_HEAPS
+    sexp_find_fixed_chunk_heap_usage(ctx, size, &sum_freed, &total_size);
+#else
     total_size = sexp_heap_total_size(sexp_context_heap(ctx));
+#endif
     if (((max_freed < size)
          || ((total_size > sum_freed)
              && (total_size - sum_freed) > (total_size*SEXP_GROW_HEAP_RATIO)))
@@ -600,6 +732,13 @@ void* sexp_alloc (sexp ctx, size_t size) {
       sexp_debug_printf("ran out of memory allocating %lu bytes => %p", size, res);
     }
   }
+#if SEXP_USE_TRACK_ALLOC_TIMES
+  gettimeofday(&end, NULL);
+  alloc_time = 1000000*(end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec);
+  sexp_context_alloc_count(ctx) += 1;
+  sexp_context_alloc_usecs(ctx) += alloc_time;
+  sexp_context_alloc_usecs_sq(ctx) += alloc_time*alloc_time;
+#endif
   return res;
 }
 
@@ -617,4 +756,4 @@ void sexp_gc_init (void) {
 #endif
 }
 
-#endif
+#endif  /* ! SEXP_USE_BOEHM && ! SEXP_USE_MALLOC */

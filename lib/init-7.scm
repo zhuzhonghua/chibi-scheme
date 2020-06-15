@@ -1,5 +1,5 @@
 ;; init-7.scm -- core library procedures for R7RS
-;; Copyright (c) 2009-2012 Alex Shinn.  All rights reserved.
+;; Copyright (c) 2009-2019 Alex Shinn.  All rights reserved.
 ;; BSD-style license: http://synthcode.com/license.txt
 
 (define (caar x) (car (car x)))
@@ -15,6 +15,10 @@
    (cons kar kdr)
    (strip-syntactic-closures source)))
 
+(define (not x) (if x #f #t))
+(define (boolean? x) (if (eq? x #t) #t (eq? x #f)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; basic utils
 
 (define (procedure? x) (if (closure? x) #t (opcode? x)))
@@ -98,32 +102,78 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; syntax
 
+(current-renamer (lambda (x) x))
+
+(define close-syntax
+  (lambda (form env)
+    (make-syntactic-closure env '() form)))
+
+(define make-renamer
+  (lambda (mac-env)
+    (define rename
+      ((lambda (renames)
+         (lambda (identifier)
+	   ((lambda (cell)
+	      (if cell
+		  (cdr cell)
+	  	  ((lambda (name)
+		     (set! renames (cons (cons identifier name) renames))
+		     name)
+                   ((lambda (id)
+                      (syntactic-closure-set-rename! id rename)
+                      id)
+ 		    (close-syntax identifier mac-env)))))
+	    (assq identifier renames))))
+       '()))
+    rename))
+
+(define make-transformer
+  (lambda (transformer)
+    (lambda (expr use-env mac-env)
+      ((lambda (old-use-env old-mac-env old-renamer)
+	 (current-usage-environment use-env)
+	 (current-transformer-environment mac-env)
+	 (current-renamer (make-renamer mac-env))
+	 ((lambda (result)
+	    (current-usage-environment old-use-env)
+	    (current-transformer-environment old-mac-env)
+	    (current-renamer old-renamer)
+	    result)
+	  (transformer expr)))
+       (current-usage-environment)
+       (current-transformer-environment)
+       (current-renamer)))))
+
+(%define-syntax define-syntax
+  (lambda (expr use-env mac-env)
+    (list (close-syntax '%define-syntax mac-env)
+	  (cadr expr)
+	  (list (close-syntax 'make-transformer mac-env)
+		(car (cddr expr))))))
+
+(define free-identifier=?
+  (lambda (x y)
+    ((lambda (use-env cur-env)
+       (identifier=? (if use-env use-env cur-env) x
+		     (if use-env use-env cur-env) y))
+     (current-usage-environment)
+     (current-environment))))
+
 (define sc-macro-transformer
   (lambda (f)
-    (lambda (expr use-env mac-env)
-      (make-syntactic-closure mac-env '() (f expr use-env)))))
+    (lambda (expr)
+      (close-syntax (f expr (current-usage-environment))
+		    (current-transformer-environment)))))
 
 (define rsc-macro-transformer
   (lambda (f)
-    (lambda (expr use-env mac-env)
-      (f expr mac-env))))
+    (lambda (expr)
+      (f expr (current-transformer-environment)))))
 
 (define er-macro-transformer
   (lambda (f)
-    (lambda (expr use-env mac-env)
-      ((lambda (rename compare) (f expr rename compare))
-       ((lambda (renames)
-          (lambda (identifier)
-            ((lambda (cell)
-               (if cell
-                   (cdr cell)
-                   ((lambda (name)
-                      (set! renames (cons (cons identifier name) renames))
-                      name)
-                    (make-syntactic-closure mac-env '() identifier))))
-             (assq identifier renames))))
-        '())
-       (lambda (x y) (identifier=? use-env x use-env y))))))
+    (lambda (expr)
+      (f expr (current-renamer) free-identifier=?))))
 
 (define-syntax cond
   (er-macro-transformer
@@ -333,12 +383,164 @@
 (define-auxiliary-syntax unquote-splicing)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; SRFI-0
+
+(define-syntax cond-expand
+  (er-macro-transformer
+   (lambda (expr rename compare)
+     (define (check x)
+       (if (pair? x)
+           (case (car x)
+             ((and) (every check (cdr x)))
+             ((or) (any check (cdr x)))
+             ((not) (not (check (cadr x))))
+             ((library) (eval `(find-module ',(cadr x)) (%meta-env)))
+             (else (error "cond-expand: bad feature" x)))
+           (memq (identifier->symbol x) *features*)))
+     (let expand ((ls (cdr expr)))
+       (cond
+        ((null? ls))  ; (error "cond-expand: no expansions" expr)
+        ((not (pair? (car ls))) (error "cond-expand: bad clause" (car ls)))
+        ((eq? 'else (identifier->symbol (caar ls)))
+         (if (pair? (cdr ls))
+             (error "cond-expand: else in non-final position")
+             `(,(rename 'begin) ,@(cdar ls))))
+        ((check (caar ls)) `(,(rename 'begin) ,@(cdar ls)))
+        (else (expand (cdr ls))))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; string cursors
+
+(define (string-copy str . o)
+  (apply substring str (if (pair? o) o '(0))))
+
+(cond-expand
+ (safe-string-cursors
+  (define Safe-String-Cursor
+    (register-simple-type "Safe-String-Cursor" #f '(string where size)))
+  (define %make-string-cursor
+    (make-constructor "%make-string-cursor" Safe-String-Cursor))
+  (set! string-cursor?
+    (make-type-predicate "string-cursor?" Safe-String-Cursor))
+  (define string-cursor-string
+    (make-getter "string-cursor-string" Safe-String-Cursor 0))
+  (define string-cursor-string-set!
+    (make-setter "string-cursor-string-set!" Safe-String-Cursor 0))
+  (define string-cursor-where
+    (make-getter "string-cursor-where" Safe-String-Cursor 1))
+  (define string-cursor-where-set!
+    (make-setter "string-cursor-where-set!" Safe-String-Cursor 1))
+  (define string-cursor-size
+    (make-getter "string-cursor-size" Safe-String-Cursor 2))
+  (define string-cursor-size-set!
+    (make-setter "string-cursor-size-set!" Safe-String-Cursor 2))
+  (define (make-string-cursor string where size)
+    (let ((res (%make-string-cursor)))
+      (string-cursor-string-set! res string)
+      (string-cursor-where-set! res where)
+      (string-cursor-size-set! res size)
+      res))
+  (define (validate-cursor str sc)
+    (cond
+     ((not (eq? str (string-cursor-string sc)))
+      (error "attempt to use string cursor on different string" str sc))
+     ((not (= (string-size str) (string-cursor-size sc)))
+      (error "string has mutated since cursor was created" str sc))))
+  (define orig-string-cursor-offset string-cursor-offset)
+  (define orig-string-cursor->index string-cursor->index)
+  (define orig-string-index->cursor string-index->cursor)
+  (define orig-substring-cursor substring-cursor)
+  (define orig-string-cursor-end string-cursor-end)
+  (set! string-cursor-offset
+        (lambda (sc) (orig-string-cursor-offset (string-cursor-where sc))))
+  (set! string-cursor->index
+        (lambda (str sc) (orig-string-cursor->index str (string-cursor-where sc))))
+  (set! string-index->cursor
+        (lambda (str i)
+          (make-string-cursor str
+                              (orig-string-index->cursor str i)
+                              (string-size str))))
+  (set! substring-cursor
+        (lambda (str start . o)
+          (validate-cursor str start)
+          (cond
+           ((pair? o)
+            (validate-cursor str (car o))
+            (orig-substring-cursor str (string-cursor-where start) (string-cursor-where (car o))))
+           (else
+            (orig-substring-cursor str (string-cursor-where start))))))
+  (define (string-cursor=? sc1 sc2 . o)
+    (and (equal? ((values string-cursor-offset) sc1) ((values string-cursor-offset) sc2))
+         (or (null? o) (apply string-cursor=? sc2 o))))
+  (define (string-cursor<? sc1 sc2 . o)
+    (and (< ((values string-cursor-offset) sc1) ((values string-cursor-offset) sc2))
+         (or (null? o) (apply string-cursor<? sc2 o))))
+  (define (string-cursor<=? sc1 sc2 . o)
+    (and (<= ((values string-cursor-offset) sc1) ((values string-cursor-offset) sc2))
+         (or (null? o) (apply string-cursor<=? sc2 o))))
+  (define (string-cursor>? sc1 sc2 . o)
+    (and (> ((values string-cursor-offset) sc1) ((values string-cursor-offset) sc2))
+         (or (null? o) (apply string-cursor>? sc2 o))))
+  (define (string-cursor>=? sc1 sc2 . o)
+    (and (>= ((values string-cursor-offset) sc1) ((values string-cursor-offset) sc2))
+         (or (null? o) (apply string-cursor>=? sc2 o))))
+  (define string-cursor-start
+    (let ((start (string-index->cursor "" 0)))
+      (lambda (s) (make-string-cursor s start (string-size s)))))
+  (set! string-cursor-end
+        (lambda (s)
+          (let ((end (orig-string-cursor-end s)))
+            (make-string-cursor s end (string-size s)))))
+  (define (string-size s)
+    (orig-string-cursor-offset (orig-string-cursor-end s)))
+  (define orig-string-cursor-ref string-cursor-ref)
+  (define orig-string-cursor-next string-cursor-next)
+  (define orig-string-cursor-prev string-cursor-prev)
+  (set! string-cursor-ref
+        (lambda (str sc)
+          (validate-cursor str sc)
+          (orig-string-cursor-ref str (string-cursor-where sc))))
+  (set! string-cursor-next
+        (lambda (str sc)
+          (validate-cursor str sc)
+          (make-string-cursor
+           str
+           (orig-string-cursor-next str (string-cursor-where sc))
+           (string-cursor-size sc))))
+  (set! string-cursor-prev
+        (lambda (str sc)
+          (validate-cursor str sc)
+          (make-string-cursor
+           str
+           (orig-string-cursor-prev str (string-cursor-where sc))
+           (string-cursor-size sc)))))
+ (full-unicode
+  (define string-cursor=? eq?)
+  (define string-cursor-start
+    (let ((start (string-index->cursor "" 0)))
+      (lambda (s) start)))
+  (define (string-size s)
+    (string-cursor-offset (string-cursor-end s))))
+ (else
+  (define string-cursor? fixnum?)
+  (define string-cursor=? eq?)
+  (define string-cursor<? <)
+  (define string-cursor<=? <=)
+  (define string-cursor>? >)
+  (define string-cursor>=? >=)
+  (define (string-index->cursor str i) i)
+  (define (string-cursor->index str off) off)
+  (define (string-cursor-offset str off) off)
+  (define string-size string-length)
+  (define substring-cursor substring)
+  (define (string-cursor-start s) 0)
+  (define string-cursor-end string-length)
+  (define string-cursor-ref string-ref)
+  (define (string-cursor-next s i) (+ i 1))
+  (define (string-cursor-prev s i) (- i 1))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; library functions
-
-;; booleans
-
-(define (not x) (if x #f #t))
-(define (boolean? x) (if (eq? x #t) #t (eq? x #f)))
 
 ;; char utils
 
@@ -478,7 +680,7 @@
     (let lp ((ls ls))
       (and (pair? ls) (if (eq obj (car ls)) ls (lp (cdr ls)))))))
 
-(define memv member)
+(define (memv obj ls) (member obj ls eqv?))
 
 (define (assoc obj ls . o)
   (let ((eq (if (pair? o) (car o) equal?)))
@@ -586,31 +788,6 @@
         (consumer res))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; SRFI-0
-
-(define-syntax cond-expand
-  (er-macro-transformer
-   (lambda (expr rename compare)
-     (define (check x)
-       (if (pair? x)
-           (case (car x)
-             ((and) (every check (cdr x)))
-             ((or) (any check (cdr x)))
-             ((not) (not (check (cadr x))))
-             ((library) (eval `(find-module ',(cadr x)) (%meta-env)))
-             (else (error "cond-expand: bad feature" x)))
-           (memq (identifier->symbol x) *features*)))
-     (let expand ((ls (cdr expr)))
-       (cond ((null? ls))  ; (error "cond-expand: no expansions" expr)
-             ((not (pair? (car ls))) (error "cond-expand: bad clause" (car ls)))
-             ((eq? 'else (identifier->symbol (caar ls)))
-              (if (pair? (cdr ls))
-                  (error "cond-expand: else in non-final position")
-                  `(,(rename 'begin) ,@(cdar ls))))
-             ((check (caar ls)) `(,(rename 'begin) ,@(cdar ls)))
-             (else (expand (cdr ls))))))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; dynamic-wind
 
 (define %make-point vector)
@@ -702,7 +879,7 @@
         (_quote (rename 'syntax-quote)) (_apply (rename 'apply))
         (_append (rename 'append))      (_map (rename 'map))
         (_vector? (rename 'vector?))    (_list? (rename 'list?))
-        (_len (rename'len))             (_length (rename 'length*))
+        (_len (rename 'len))            (_length (rename 'length*))
         (_- (rename '-))   (_>= (rename '>=))   (_error (rename 'error))
         (_ls (rename 'ls)) (_res (rename 'res)) (_i (rename 'i))
         (_reverse (rename 'reverse))
@@ -862,7 +1039,7 @@
          ((vector? x) (lp (vector->list x) free))
          (else free))))
     (define (expand-template tmpl vars)
-      (let lp ((t tmpl) (dim 0))
+      (let lp ((t tmpl) (dim 0) (ell-esc #f))
         (cond
          ((identifier? t)
           (cond
@@ -875,12 +1052,9 @@
             (list _rename (list _quote t)))))
          ((pair? t)
           (cond
-           ((ellipsis-escape? t)
-            (list _quote
-                  (if (pair? (cdr t))
-                      (if (pair? (cddr t)) (cddr t) (cadr t))
-                      (cdr t))))
-           ((ellipsis? t)
+           ((and (ellipsis-escape? t) (not ell-esc))
+            (lp (if (and (pair? (cdr t)) (null? (cddr t))) (cadr t) (cdr t)) dim #t))
+           ((and (ellipsis? t) (not ell-esc))
             (let* ((depth (ellipsis-depth t))
                    (ell-dim (+ dim depth))
                    (ell-vars (free-vars (car t) vars ell-dim)))
@@ -889,9 +1063,9 @@
                 (error "too many ...'s"))
                ((and (null? (cdr (cdr t))) (identifier? (car t)))
                 ;; shortcut for (var ...)
-                (lp (car t) ell-dim))
+                (lp (car t) ell-dim ell-esc))
                (else
-                (let* ((once (lp (car t) ell-dim))
+                (let* ((once (lp (car t) ell-dim ell-esc))
                        (nest (if (and (null? (cdr ell-vars))
                                       (identifier? once)
                                       (eq? once (car vars)))
@@ -905,9 +1079,9 @@
                                  ((= d 1) many))))
                   (if (null? (ellipsis-tail t))
                       many ;; shortcut
-                      (list _append many (lp (ellipsis-tail t) dim))))))))
-           (else (list _cons3 (lp (car t) dim) (lp (cdr t) dim) (list _quote t)))))
-         ((vector? t) (list _list->vector (lp (vector->list t) dim)))
+                      (list _append many (lp (ellipsis-tail t) dim ell-esc))))))))
+           (else (list _cons3 (lp (car t) dim ell-esc) (lp (cdr t) dim ell-esc) (list _quote t)))))
+         ((vector? t) (list _list->vector (lp (vector->list t) dim ell-esc)))
          ((null? t) (list _quote '()))
          (else t))))
     (list
@@ -931,6 +1105,45 @@
   (er-macro-transformer
    (lambda (expr rename compare)
      (syntax-rules-transformer expr rename compare))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; let(rec)-syntax and datum->syntax
+
+(define-syntax let-syntax
+  (syntax-rules ()
+    ((let-syntax ((keyword transformer) ...) . body)
+     (%let-syntax ((keyword (make-transformer transformer)) ...) . body))))
+
+(define-syntax letrec-syntax
+  (syntax-rules ()
+    ((letrec-syntax ((keyword transformer) ...) . body)
+     (%letrec-syntax ((keyword (make-transformer transformer)) ...) . body))))
+
+(define (symbol->identifier id symbol)
+  (cond
+   ((symbol? id)
+    symbol)
+   ((syntactic-closure-rename id)
+    => (lambda (renamer)
+	 (renamer symbol)))
+   (else
+    symbol)))
+
+;; TODO: Handle cycles in datum.
+(define (datum->syntax id datum)
+  (let loop ((datum datum))
+    (cond ((pair? datum)
+	   (cons (loop (car datum))
+		 (loop (cdr datum))))
+	  ((vector? datum)
+	   (do ((res (make-vector (vector-length datum)))
+		(i 0 (+ i 1)))
+	       ((= i (vector-length datum)) res)
+	     (vector-set! res i (loop (vector-ref datum i)))))
+	  ((symbol? datum)
+	   (symbol->identifier id datum))
+	  (else
+	   datum))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; additional syntax
@@ -1166,7 +1379,11 @@
  (complex (define (real? x) (and (number? x) (not (%complex? x)))))
  (else (define real? number?)))
 (define (rational? x)
-  (and (real? x) (= x x) (not (= x (+ x (if (positive? x) 1 -1))))))
+  (and (real? x)
+       (= x x)
+       (if (or (> x 1) (< x -1))
+           (not (= x (/ x 2)))
+           (<= -1 x 1))))
 
 (define (eqv? a b) (if (eq? a b) #t (and (number? a) (equal? a b))))
 
@@ -1264,35 +1481,3 @@
                     (* (if (eqv? y -0.0) -1 1)
                        (if (eqv? x -0.0) 3.141592653589793 x))
                     (atan1 (/ y x))))))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; string cursors
-
-(define (string-copy str . o)
-  (apply substring str (if (pair? o) o '(0))))
-
-(define string-cursor=? eq?)
-
-(cond-expand
- (full-unicode
-  (define string-cursor-start
-    (let ((start (string-index->cursor "" 0)))
-      (lambda (s) start)))
-  (define (string-size s)
-    (string-cursor-offset (string-cursor-end s))))
- (else
-  (define string-cursor? fixnum?)
-  (define string-cursor<? <)
-  (define string-cursor<=? <=)
-  (define string-cursor>? >)
-  (define string-cursor>=? >=)
-  (define (string-index->cursor str i) i)
-  (define (string-cursor->index str off) off)
-  (define (string-cursor-offset str off) off)
-  (define string-size string-length)
-  (define substring-cursor substring)
-  (define (string-cursor-start s) 0)
-  (define string-cursor-end string-length)
-  (define string-cursor-ref string-ref)
-  (define (string-cursor-next s i) (+ i 1))
-  (define (string-cursor-prev s i) (- i 1))))

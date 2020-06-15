@@ -210,12 +210,14 @@
 /*   Making them immutable allows for packed UTF-8 strings. */
 /* #define SEXP_USE_MUTABLE_STRINGS 0 */
 
-/* uncomment this to make string cursors just fixnum offsets */
-/*   The default when using UTF-8 is to have a disjoint string */
-/*   cursor type.  This is an immediate type with no loss in  */
-/*   performance, and prevents confusion mixing indexes and */
-/*   cursors. */
-/* #define SEXP_USE_DISJOINT_STRING_CURSORS 0 */
+/* uncomment this to enable precomputed index->cursor tables for strings */
+/*   This makes string-ref faster at the expensive of making string */
+/*   construction (including string-append and I/O) slower. */
+/*   You can configure with SEXP_STRING_INDEX_TABLE_CHUNK_SIZE below, */
+/*   the default is caching every 64th index (<=12.5% string overhead). */
+/*   With a minimum of 1 you'd have up to 8x string overhead, and */
+/*   string-ref would still be slightly slower than string-cursors. */
+/* #define SEXP_USE_STRING_INDEX_TABLE 1 */
 
 /* uncomment this to disable automatic closing of ports */
 /*   If enabled, the underlying FILE* for file ports will be */
@@ -271,6 +273,15 @@
 #define SEXP_GROW_HEAP_RATIO 0.75
 #endif
 
+/* how much to expand the heap size by */
+#ifndef SEXP_GROW_HEAP_FACTOR
+#define SEXP_GROW_HEAP_FACTOR 2  /* 1.6180339887498948482 */
+#endif
+
+/* size of per-context stack that is used during gc cycles
+ * increase if you can affort extra unused memory */
+#define SEXP_MARK_STACK_COUNT 1024
+
 /* the default number of opcodes to run each thread for */
 #ifndef SEXP_DEFAULT_QUANTUM
 #define SEXP_DEFAULT_QUANTUM 500
@@ -301,6 +312,51 @@
 #endif
 #endif
 
+/* Detect specific BSD */
+#if SEXP_BSD
+#if defined(__APPLE__)
+#define SEXP_DARWIN 1
+#define SEXP_FREEBSD 0
+#define SEXP_NETBSD 0
+#define SEXP_DRAGONFLY 0
+#define SEXP_OPENBSD 0
+#elif defined(__FreeBSD__)
+#define SEXP_DARWIN 0
+#define SEXP_FREEBSD 1
+#define SEXP_NETBSD 0
+#define SEXP_DRAGONFLY 0
+#define SEXP_OPENBSD 0
+#elif defined(__NetBSD__)
+#define SEXP_DARWIN 0
+#define SEXP_FREEBSD 0
+#define SEXP_NETBSD 1
+#define SEXP_DRAGONFLY 0
+#define SEXP_OPENBSD 0
+#elif defined(__DragonFly__)
+#define SEXP_DARWIN 0
+#define SEXP_FREEBSD 0
+#define SEXP_NETBSD 0
+#define SEXP_DRAGONFLY 1
+#define SEXP_OPENBSD 0
+#elif defined(__OpenBSD__)
+#define SEXP_DARWIN 0
+#define SEXP_FREEBSD 0
+#define SEXP_NETBSD 0
+#define SEXP_DRAGONFLY 0
+#define SEXP_OPENBSD 1
+#endif
+#endif
+
+/* for bignum support, need a double long to store long*long */
+/* gcc supports uint128_t, otherwise we need a custom struct */
+#ifndef SEXP_USE_CUSTOM_LONG_LONGS
+#if SEXP_64_BIT && !defined(__GNUC__)
+#define SEXP_USE_CUSTOM_LONG_LONGS 1
+#else
+#define SEXP_USE_CUSTOM_LONG_LONGS 0
+#endif
+#endif
+
 #ifndef SEXP_USE_NO_FEATURES
 #define SEXP_USE_NO_FEATURES 0
 #endif
@@ -309,8 +365,18 @@
 #define SEXP_USE_PEDANTIC 0
 #endif
 
+/* this ensures public structs and enums are unchanged by feature toggles. */
+/* should generally be left at 1. */
+#ifndef SEXP_USE_STABLE_ABI
+#define SEXP_USE_STABLE_ABI 1
+#endif
+
 #ifndef SEXP_USE_GREEN_THREADS
+#if defined(_WIN32)
+#define SEXP_USE_GREEN_THREADS 0
+#else
 #define SEXP_USE_GREEN_THREADS ! SEXP_USE_NO_FEATURES
+#endif
 #endif
 
 #ifndef SEXP_USE_DEBUG_THREADS
@@ -399,7 +465,11 @@
 #endif
 
 #ifndef SEXP_USE_TIME_GC
-#define SEXP_USE_TIME_GC SEXP_USE_DEBUG_GC > 0
+#if SEXP_USE_DEBUG_GC > 0 || defined(__linux) || SEXP_BSD
+#define SEXP_USE_TIME_GC 1
+#else
+#define SEXP_USE_TIME_GC 0
+#endif
 #endif
 
 #ifndef SEXP_USE_SAFE_GC_MARK
@@ -420,6 +490,18 @@
 
 #ifndef SEXP_USE_TRACK_ALLOC_BACKTRACE
 #define SEXP_USE_TRACK_ALLOC_BACKTRACE SEXP_USE_TRACK_ALLOC_SOURCE
+#endif
+
+#ifndef SEXP_USE_TRACK_ALLOC_TIMES
+#define SEXP_USE_TRACK_ALLOC_TIMES 0
+#endif
+
+#ifndef SEXP_USE_TRACK_ALLOC_SIZES
+#define SEXP_USE_TRACK_ALLOC_SIZES 0
+#endif
+
+#ifndef SEXP_ALLOC_HISTOGRAM_BUCKETS
+#define SEXP_ALLOC_HISTOGRAM_BUCKETS 32
 #endif
 
 #ifndef SEXP_BACKTRACE_SIZE
@@ -549,14 +631,22 @@
 #define SEXP_USE_OBJECT_BRACE_LITERALS (SEXP_USE_TYPE_DEFS && !SEXP_USE_NO_FEATURES)
 #endif
 
-/* Dangerous without shared object detection. */
 #ifndef SEXP_USE_TYPE_PRINTERS
-#define SEXP_USE_TYPE_PRINTERS 0
+#define SEXP_USE_TYPE_PRINTERS SEXP_USE_OBJECT_BRACE_LITERALS
+#endif
+
+#ifndef SEXP_USE_UNIFORM_VECTOR_LITERALS
+#define SEXP_USE_UNIFORM_VECTOR_LITERALS ! SEXP_USE_NO_FEATURES
 #endif
 
 #ifndef SEXP_USE_BYTEVECTOR_LITERALS
-#define SEXP_USE_BYTEVECTOR_LITERALS ! SEXP_USE_NO_FEATURES
+#define SEXP_USE_BYTEVECTOR_LITERALS SEXP_USE_UNIFORM_VECTOR_LITERALS
 #endif
+
+#ifndef SEXP_BYTEVECTOR_HEX_LITERALS
+#define SEXP_BYTEVECTOR_HEX_LITERALS SEXP_USE_BYTEVECTOR_LITERALS
+#endif
+
 
 #ifndef SEXP_USE_SELF_PARAMETER
 #define SEXP_USE_SELF_PARAMETER 1
@@ -629,6 +719,18 @@
 #define SEXP_USE_PACKED_STRINGS 1
 #endif
 
+#if SEXP_USE_PACKED_STRINGS
+#define SEXP_USE_STRING_INDEX_TABLE 0
+#endif
+#ifndef SEXP_USE_STRING_INDEX_TABLE
+#define SEXP_USE_STRING_INDEX_TABLE 0
+#endif
+
+/* for every chunk_size indexes store the precomputed offset */
+#ifndef SEXP_STRING_INDEX_TABLE_CHUNK_SIZE
+#define SEXP_STRING_INDEX_TABLE_CHUNK_SIZE 64
+#endif
+
 #ifndef SEXP_USE_DISJOINT_STRING_CURSORS
 #define SEXP_USE_DISJOINT_STRING_CURSORS SEXP_USE_UTF8_STRINGS
 #endif
@@ -695,12 +797,20 @@
 #define SEXP_MAX_STACK_SIZE SEXP_INIT_STACK_SIZE*1000
 #endif
 
+#ifndef SEXP_MAX_VECTOR_LENGTH
+#define SEXP_MAX_VECTOR_LENGTH (SEXP_MAX_FIXNUM >> 1)
+#endif
+
 #ifndef SEXP_DEFAULT_EQUAL_DEPTH
 #define SEXP_DEFAULT_EQUAL_DEPTH 10000
 #endif
 
 #ifndef SEXP_DEFAULT_EQUAL_BOUND
 #define SEXP_DEFAULT_EQUAL_BOUND 100000000
+#endif
+
+#ifndef SEXP_DEFAULT_WRITE_BOUND
+#define SEXP_DEFAULT_WRITE_BOUND 10000
 #endif
 
 #ifndef SEXP_STRIP_SYNCLOS_BOUND
@@ -810,10 +920,14 @@
 #endif
 
 #ifdef _WIN32
+#ifdef SEXP_STATIC_LIBRARY
+#define SEXP_API    extern
+#else
 #ifdef BUILDING_DLL
 #define SEXP_API    __declspec(dllexport)
 #else
 #define SEXP_API    __declspec(dllimport)
+#endif
 #endif
 #else
 #define SEXP_API    extern

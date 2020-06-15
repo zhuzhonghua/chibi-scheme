@@ -92,6 +92,13 @@
       (test "-3141.59" (show #f (with ((decimal-align 5)) (numeric -3141.59))))
       (test "-31415.9" (show #f (with ((decimal-align 5)) (numeric -31415.9))))
 
+      (test "+inf.0" (show #f +inf.0))
+      (test "-inf.0" (show #f -inf.0))
+      (test "+nan.0" (show #f +nan.0))
+      (test "+inf.0" (show #f (numeric +inf.0)))
+      (test "-inf.0" (show #f (numeric -inf.0)))
+      (test "+nan.0" (show #f (numeric +nan.0)))
+
       (cond
        ((exact? (/ 1 3)) ;; exact rationals
         (test "333.333333333333333333333333333333"
@@ -136,7 +143,7 @@
       (test "299792458" (show #f (with ((comma-rule 3)) 299792458)))
       (test "299,792,458" (show #f (with ((comma-rule 3)) (numeric 299792458))))
       (test "-29,97,92,458"
-          (show #f (with ((comma-rule '(3 . 2))) (numeric -299792458))))
+          (show #f (with ((comma-rule '(3 2))) (numeric -299792458))))
       (test "299.792.458"
           (show #f (with ((comma-rule 3) (comma-sep #\.)) (numeric 299792458))))
       (test "299.792.458,0"
@@ -221,6 +228,9 @@
       ;; sign
       (test "+1" (show #f (numeric 1 10 #f #t)))
       (test "+1" (show #f (with ((sign-rule #t)) (numeric 1))))
+      (test "(1)" (show #f (with ((sign-rule '("(" . ")"))) (numeric -1))))
+      (test "-1" (show #f (with ((sign-rule '("-" . ""))) (numeric -1))))
+      (test "−1" (show #f (with ((sign-rule '("−" . ""))) (numeric -1))))
       (test "-0.0" (show #f (with ((sign-rule #t)) (numeric -0.0))))
       (test "+0.0" (show #f (with ((sign-rule #t)) (numeric +0.0))))
 
@@ -228,6 +238,7 @@
       (test "1,234,567" (show #f (numeric 1234567 10 #f #f 3)))
       (test "567" (show #f (numeric 567 10 #f #f 3)))
       (test "1,23,45,67" (show #f (numeric 1234567 10 #f #f 2)))
+      (test "12,34,567" (show #f (numeric 1234567 10 #f #f '(3 2))))
 
       ;; comma-sep
       (test "1|234|567" (show #f (numeric 1234567 10 #f #f 3 #\|)))
@@ -275,36 +286,37 @@
       (test "1.23" (show #f (numeric/fitted 4 1.2345 10 2)))
       (test "1.00" (show #f (numeric/fitted 4 1 10 2)))
       (test "#.##" (show #f (numeric/fitted 4 12.345 10 2)))
+      (test "#" (show #f (numeric/fitted 1 12.345 10 0)))
 
       ;; padding/trimming
 
-      (test "abc  " (show #f (padded 5 "abc")))
-      (test "  abc" (show #f (padded/left 5 "abc")))
-      (test "abcdefghi" (show #f (padded/left 5 "abcdefghi")))
+      (test "abc  " (show #f (padded/right 5 "abc")))
+      (test "  abc" (show #f (padded 5 "abc")))
+      (test "abcdefghi" (show #f (padded 5 "abcdefghi")))
       (test " abc " (show #f (padded/both 5 "abc")))
       (test " abc  " (show #f (padded/both 6 "abc")))
-      (test "abcde" (show #f (padded 5 "abcde")))
-      (test "abcdef" (show #f (padded 5 "abcdef")))
+      (test "abcde" (show #f (padded/right 5 "abcde")))
+      (test "abcdef" (show #f (padded/right 5 "abcdef")))
 
-      (test "abc" (show #f (trimmed 3 "abcde")))
-      (test "abc" (show #f (trimmed 3 "abcd")))
-      (test "abc" (show #f (trimmed 3 "abc")))
-      (test "ab" (show #f (trimmed 3 "ab")))
-      (test "a" (show #f (trimmed 3 "a")))
-      (test "cde" (show #f (trimmed/left 3 "abcde")))
+      (test "abc" (show #f (trimmed/right 3 "abcde")))
+      (test "abc" (show #f (trimmed/right 3 "abcd")))
+      (test "abc" (show #f (trimmed/right 3 "abc")))
+      (test "ab" (show #f (trimmed/right 3 "ab")))
+      (test "a" (show #f (trimmed/right 3 "a")))
+      (test "cde" (show #f (trimmed 3 "abcde")))
       (test "bcd" (show #f (trimmed/both 3 "abcde")))
       (test "bcdef" (show #f (trimmed/both 5 "abcdefgh")))
       (test "abc" (show #f (trimmed/lazy 3 "abcde")))
       (test "abc" (show #f (trimmed/lazy 3 "abc\nde")))
 
-      (test "prefix: abc" (show #f "prefix: " (trimmed 3 "abcde")))
-      (test "prefix: cde" (show #f "prefix: " (trimmed/left 3 "abcde")))
+      (test "prefix: abc" (show #f "prefix: " (trimmed/right 3 "abcde")))
+      (test "prefix: cde" (show #f "prefix: " (trimmed 3 "abcde")))
       (test "prefix: bcd" (show #f "prefix: " (trimmed/both 3 "abcde")))
       (test "prefix: abc" (show #f "prefix: " (trimmed/lazy 3 "abcde")))
       (test "prefix: abc" (show #f "prefix: " (trimmed/lazy 3 "abc\nde")))
 
-      (test "abc :suffix" (show #f (trimmed 3 "abcde") " :suffix"))
-      (test "cde :suffix" (show #f (trimmed/left 3 "abcde") " :suffix"))
+      (test "abc :suffix" (show #f (trimmed/right 3 "abcde") " :suffix"))
+      (test "cde :suffix" (show #f (trimmed 3 "abcde") " :suffix"))
       (test "bcd :suffix" (show #f (trimmed/both 3 "abcde") " :suffix"))
       (test "abc :suffix" (show #f (trimmed/lazy 3 "abcde") " :suffix"))
       (test "abc :suffix" (show #f (trimmed/lazy 3 "abc\nde") " :suffix"))
@@ -313,17 +325,17 @@
       (test "abc" (show #f (trimmed/lazy 3 (trimmed/lazy 10 "abcdefghijklmnopqrstuvwxyz"))))
 
       (test "abcde"
-          (show #f (with ((ellipsis "...")) (trimmed 5 "abcde"))))
+          (show #f (with ((ellipsis "...")) (trimmed/right 5 "abcde"))))
       (test "ab..."
-          (show #f (with ((ellipsis "...")) (trimmed 5 "abcdef"))))
+          (show #f (with ((ellipsis "...")) (trimmed/right 5 "abcdef"))))
       (test "abc..."
-          (show #f (with ((ellipsis "...")) (trimmed 6 "abcdefg"))))
+          (show #f (with ((ellipsis "...")) (trimmed/right 6 "abcdefg"))))
       (test "abcde"
-          (show #f (with ((ellipsis "...")) (trimmed/left 5 "abcde"))))
+          (show #f (with ((ellipsis "...")) (trimmed 5 "abcde"))))
       (test "...ef"
-          (show #f (with ((ellipsis "...")) (trimmed/left 5 "abcdef"))))
+          (show #f (with ((ellipsis "...")) (trimmed 5 "abcdef"))))
       (test "...efg"
-          (show #f (with ((ellipsis "...")) (trimmed/left 6 "abcdefg"))))
+          (show #f (with ((ellipsis "...")) (trimmed 6 "abcdefg"))))
       (test "abcdefg"
           (show #f (with ((ellipsis "...")) (trimmed/both 7 "abcdefg"))))
       (test "...d..."
@@ -331,32 +343,32 @@
       (test "...e..."
           (show #f (with ((ellipsis "...")) (trimmed/both 7 "abcdefghi"))))
 
-      (test "abc  " (show #f (fitted 5 "abc")))
-      (test "  abc" (show #f (fitted/left 5 "abc")))
+      (test "abc  " (show #f (fitted/right 5 "abc")))
+      (test "  abc" (show #f (fitted 5 "abc")))
       (test " abc " (show #f (fitted/both 5 "abc")))
+      (test "abcde" (show #f (fitted/right 5 "abcde")))
       (test "abcde" (show #f (fitted 5 "abcde")))
-      (test "abcde" (show #f (fitted/left 5 "abcde")))
       (test "abcde" (show #f (fitted/both 5 "abcde")))
-      (test "abcde" (show #f (fitted 5 "abcdefgh")))
-      (test "defgh" (show #f (fitted/left 5 "abcdefgh")))
+      (test "abcde" (show #f (fitted/right 5 "abcdefgh")))
+      (test "defgh" (show #f (fitted 5 "abcdefgh")))
       (test "bcdef" (show #f (fitted/both 5 "abcdefgh")))
 
       (test "prefix: abc   :suffix"
-          (show #f "prefix: " (fitted 5 "abc") " :suffix"))
+          (show #f "prefix: " (fitted/right 5 "abc") " :suffix"))
       (test "prefix:   abc :suffix"
-          (show #f "prefix: " (fitted/left 5 "abc") " :suffix"))
+          (show #f "prefix: " (fitted 5 "abc") " :suffix"))
       (test "prefix:  abc  :suffix"
           (show #f "prefix: " (fitted/both 5 "abc") " :suffix"))
       (test "prefix: abcde :suffix"
-          (show #f "prefix: " (fitted 5 "abcde") " :suffix"))
+          (show #f "prefix: " (fitted/right 5 "abcde") " :suffix"))
       (test "prefix: abcde :suffix"
-          (show #f "prefix: " (fitted/left 5 "abcde") " :suffix"))
+          (show #f "prefix: " (fitted 5 "abcde") " :suffix"))
       (test "prefix: abcde :suffix"
           (show #f "prefix: " (fitted/both 5 "abcde") " :suffix"))
       (test "prefix: abcde :suffix"
-          (show #f "prefix: " (fitted 5 "abcdefgh") " :suffix"))
+          (show #f "prefix: " (fitted/right 5 "abcdefgh") " :suffix"))
       (test "prefix: defgh :suffix"
-          (show #f "prefix: " (fitted/left 5 "abcdefgh") " :suffix"))
+          (show #f "prefix: " (fitted 5 "abcdefgh") " :suffix"))
       (test "prefix: bcdef :suffix"
           (show #f "prefix: " (fitted/both 5 "abcdefgh") " :suffix"))
 
@@ -366,13 +378,13 @@
 
       (test ":abc:123"
           (show #f (joined/prefix
-                    (lambda (x) (trimmed 3 x))
+                    (lambda (x) (trimmed/right 3 x))
                     '("abcdef" "123456")
                     ":")))
 
       (test "abc\n123\n"
           (show #f (joined/suffix
-                    (lambda (x) (trimmed 3 x))
+                    (lambda (x) (trimmed/right 3 x))
                     '("abcdef" "123456")
                     nl)))
 
@@ -721,12 +733,22 @@ def | 6
       (test "\x1B;[31mred\x1B;[0m" (show #f (as-red "red")))
       (test "\x1B;[31mred\x1B;[34mblue\x1B;[31mred\x1B;[0m"
           (show #f (as-red "red" (as-blue "blue") "red")))
+      (test "\x1b;[31m1234567\x1b;[0m col: 7"
+            (show #f (as-unicode (as-red "1234567") (fn ((col)) (each " col: " col)))))
 
       ;; unicode
       (test "〜日本語〜"
           (show #f (with ((pad-char #\〜)) (padded/both 5 "日本語"))))
       (test "日本語"
             (show #f (as-unicode (with ((pad-char #\〜)) (padded/both 5 "日本語")))))
+      (test "日本語 col: 6"
+            (show #f (as-unicode "日本語" (fn (col) (each " col: " col)))))
+      (test "日本語ΠΜΕ col: 9"
+            (show #f (as-unicode "日本語ΠΜΕ" (fn (col) (each " col: " col)))))
+      (test "日本語ΠΜΕ col: 12"
+          (show #f (with ((ambiguous-is-wide? #t))
+                     (as-unicode "日本語ΠΜΕ"
+                                 (fn (col) (each " col: " col))))))
 
       ;; from-file
       ;; for reference, filesystem-test relies on creating files under /tmp

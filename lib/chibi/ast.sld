@@ -20,17 +20,17 @@
    lambda-source-set!
    cnd-test cnd-pass cnd-fail
    cnd-test-set! cnd-pass-set! cnd-fail-set!
-   set-var set-value set-var-set! set-value-set!
+   set-var set-value set-var-set! set-value-set! set-source set-source-set!
    ref-name ref-cell ref-name-set! ref-cell-set!
    seq-ls seq-ls-set! lit-value lit-value-set!
    exception-kind exception-message exception-irritants exception-source
    opcode-name opcode-num-params opcode-return-type opcode-param-type
    opcode-class opcode-code opcode-data opcode-variadic?
-   macro-procedure macro-env macro-source
+   macro-procedure macro-env macro-source macro-aux macro-aux-set!
    procedure-code procedure-vars procedure-name procedure-name-set!
    procedure-arity procedure-variadic? procedure-flags
    bytecode-name bytecode-literals bytecode-source
-   port-line port-line-set!
+   port-line port-line-set! port-source? port-source?-set!
    extend-env env-parent env-parent-set! env-lambda env-lambda-set!
    env-define! env-push! env-syntactic? env-syntactic?-set! core-code
    type-name type-cpl type-parent type-slots type-num-slots

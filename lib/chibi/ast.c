@@ -72,7 +72,7 @@ sexp sexp_get_env_cell (sexp ctx, sexp self, sexp_sint_t n, sexp env, sexp id, s
       id = sexp_synclo_expr(id);
     }
     cell = sexp_env_cell(ctx, env, id, 0);
-    if (!cell && createp)
+    if (!cell && sexp_truep(createp))
       cell = sexp_env_cell_define(ctx, env, id, SEXP_UNDEF, NULL);
   }
   return cell ? cell : SEXP_FALSE;
@@ -213,6 +213,18 @@ sexp sexp_set_port_line (sexp ctx, sexp self, sexp_sint_t n, sexp p, sexp i) {
   sexp_assert_type(ctx, sexp_portp, SEXP_IPORT, p);
   sexp_assert_type(ctx, sexp_fixnump, SEXP_FIXNUM, i);
   sexp_port_line(p) = sexp_unbox_fixnum(i);
+  return SEXP_VOID;
+}
+
+sexp sexp_get_port_sourcep (sexp ctx, sexp self, sexp_sint_t n, sexp p) {
+  sexp_assert_type(ctx, sexp_portp, SEXP_IPORT, p);
+  return sexp_make_boolean(sexp_port_sourcep(p));
+}
+
+sexp sexp_set_port_sourcep (sexp ctx, sexp self, sexp_sint_t n, sexp p, sexp b) {
+  sexp_assert_type(ctx, sexp_portp, SEXP_IPORT, p);
+  sexp_assert_type(ctx, sexp_booleanp, SEXP_BOOLEAN, b);
+  sexp_port_sourcep(p) = sexp_truep(b);
   return SEXP_VOID;
 }
 
@@ -657,6 +669,7 @@ sexp sexp_init_library (sexp ctx, sexp self, sexp_sint_t n, sexp env, const char
   sexp_define_accessors(ctx, env, SEXP_CND, 2, "cnd-fail", "cnd-fail-set!");
   sexp_define_accessors(ctx, env, SEXP_SET, 0, "set-var", "set-var-set!");
   sexp_define_accessors(ctx, env, SEXP_SET, 1, "set-value", "set-value-set!");
+  sexp_define_accessors(ctx, env, SEXP_SET, 2, "set-source", "set-source-set!");
   sexp_define_accessors(ctx, env, SEXP_REF, 0, "ref-name", "ref-name-set!");
   sexp_define_accessors(ctx, env, SEXP_REF, 1, "ref-cell", "ref-cell-set!");
   sexp_define_accessors(ctx, env, SEXP_SEQ, 0, "seq-ls", "seq-ls-set!");
@@ -669,6 +682,7 @@ sexp sexp_init_library (sexp ctx, sexp self, sexp_sint_t n, sexp env, const char
   sexp_define_accessors(ctx, env, SEXP_MACRO, 0, "macro-procedure", NULL);
   sexp_define_accessors(ctx, env, SEXP_MACRO, 1, "macro-env", NULL);
   sexp_define_accessors(ctx, env, SEXP_MACRO, 2, "macro-source", NULL);
+  sexp_define_accessors(ctx, env, SEXP_MACRO, 3, "macro-aux", "macro-aux-set!");
   sexp_define_foreign(ctx, env, "procedure-code", 1, sexp_get_procedure_code);
   sexp_define_foreign(ctx, env, "procedure-vars", 1, sexp_get_procedure_vars);
   sexp_define_foreign(ctx, env, "procedure-arity", 1, sexp_get_procedure_arity);
@@ -696,6 +710,8 @@ sexp sexp_init_library (sexp ctx, sexp self, sexp_sint_t n, sexp env, const char
   sexp_define_foreign(ctx, env, "opcode-param-type", 2, sexp_get_opcode_param_type);
   sexp_define_foreign(ctx, env, "port-line", 1, sexp_get_port_line);
   sexp_define_foreign(ctx, env, "port-line-set!", 2, sexp_set_port_line);
+  sexp_define_foreign(ctx, env, "port-source?", 1, sexp_get_port_sourcep);
+  sexp_define_foreign(ctx, env, "port-source?-set!", 2, sexp_set_port_sourcep);
   sexp_define_foreign(ctx, env, "type-of", 1, sexp_type_of);
   sexp_define_foreign(ctx, env, "type-name", 1, sexp_type_name_op);
   sexp_define_foreign(ctx, env, "type-cpl", 1, sexp_type_cpl_op);

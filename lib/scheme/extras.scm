@@ -24,7 +24,7 @@
         (else (lp (cdr files) (append (read-sexps (car files) #t) res))))))))
 
 (define (read-error? x)
-  (and (error-object? x) (eq? 'read (exception-kind x))))
+  (and (error-object? x) (memq (exception-kind x) '(read read-incomplete)) #t))
 
 (define (file-error? x)
   (and (error-object? x) (eq? 'file (exception-kind x))))
@@ -35,9 +35,13 @@
 (define inexact exact->inexact)
 
 (define (boolean=? x y . o)
-  (and (eq? x y) (if (pair? o) (apply boolean=? y o) #t)))
+  (if (not (boolean? x))
+      (error "not a boolean" x)
+      (and (eq? x y) (if (pair? o) (apply boolean=? y o) #t))))
 (define (symbol=? x y . o)
-  (and (eq? x y) (if (pair? o) (apply symbol=? y o) #t)))
+  (if (not (symbol? x))
+      (error "not a symbol" x)
+      (and (eq? x y) (if (pair? o) (apply symbol=? y o) #t))))
 
 (define call/cc call-with-current-continuation)
 

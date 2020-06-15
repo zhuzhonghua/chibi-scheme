@@ -1,5 +1,5 @@
 ;; show.scm -- additional combinator formatters
-;; Copyright (c) 2013-2017 Alex Shinn.  All rights reserved.
+;; Copyright (c) 2013-2020 Alex Shinn.  All rights reserved.
 ;; BSD-style license: http://synthcode.com/license.txt
 
 ;;> A library of procedures for formatting Scheme objects to text in
@@ -83,20 +83,6 @@
     (displayed (make-string (max 0 (- where col)) pad-char))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; String transformations
-
-(define (with-string-transformer proc . ls)
-  (fn (output)
-    (let ((output* (lambda (str) (fn () (output (proc str))))))
-      (with ((output output*)) (each-in-list ls)))))
-
-;;> Show each of \var{ls}, uppercasing all generated text.
-(define (upcased . ls) (apply with-string-transformer string-upcase ls))
-
-;;> Show each of \var{ls}, lowercasing all generated text.
-(define (downcased . ls) (apply with-string-transformer string-downcase ls))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Padding and trimming
 
 ;;> Pad the result of \scheme{(each-in-list ls)} to at least
@@ -119,15 +105,12 @@
              (displayed str)))))))
 
 ;;> As \scheme{padded/both} but only applies padding on the right.
-(define (padded width . ls)
+(define (padded/right width . ls)
   (fn ((col1 col))
     (each (each-in-list ls)
           (fn ((col2 col) pad-char)
             (displayed (make-string (max 0 (- width (- col2 col1)))
                                     pad-char))))))
-
-;;> An alias for \scheme{padded}.
-(define padded/right padded)
 
 ;;> As \scheme{padded/both} but only applies padding on the left.
 (define (padded/left width . ls)
@@ -137,6 +120,9 @@
      (fn (string-width pad-char)
        (let ((diff (- width (string-width str))))
          (each (make-string (max 0 diff) pad-char) str))))))
+
+;;> An alias for \scheme{padded/left}.
+(define padded padded/left)
 
 ;; General buffered trim - capture the output apply a trimmer.
 (define (trimmed/buffered width producer proc)
@@ -155,7 +141,7 @@
 ;;> are removed, then the value of \scheme{ellipsis} (default empty)
 ;;> is used in its place (trimming additional characters as needed to
 ;;> be sure the final output doesn't exceed \var{width}).
-(define (trimmed width . ls)
+(define (trimmed/right width . ls)
   (trimmed/buffered
    width
    (each-in-list ls)
@@ -168,9 +154,6 @@
                    nothing
                    (substring str 0 (- width ell-len)))
                ell))))))
-
-;;> An alias for \scheme{trimmed}.
-(define trimmed/right trimmed)
 
 ;;> As \scheme{trimmed} but removes from the left.
 (define (trimmed/left width . ls)
@@ -186,6 +169,9 @@
                (if (negative? diff)
                    nothing
                    (substring str diff))))))))
+
+;;> An alias for \scheme{trimmed/left}.
+(define trimmed trimmed/left)
 
 ;;> As \scheme{trimmed} but removes equally from both the left and the
 ;;> right, removing extra odd characters from the right, and inserting
@@ -215,32 +201,32 @@
     (call-with-current-continuation
      (lambda (return)
        (let ((chars-written 0)
-             (output (or orig-output output-default)))
+             (orig-output (or orig-output output-default)))
          (define (output* str)
            (let ((len (string-width str)))
              (set! chars-written (+ chars-written len))
              (if (> chars-written width)
                  (let* ((end (max 0 (- len (- chars-written width))))
                         (s (substring str 0 end)))
-                   (each (output s)
+                   (each (orig-output s)
                          (with! (output orig-output))
                          (fn () (return nothing))))
-                 (output str))))
+                 (orig-output str))))
          (with ((output output*))
            (each-in-list ls)))))))
 
 ;;> Fits the result of \scheme{(each-in-list ls)} to exactly
 ;;> \var{width} characters, padding or trimming on the right as
 ;;> needed.
-(define (fitted width . ls)
-  (padded width (trimmed width (each-in-list ls))))
-
-;;> An alias for \scheme{fitted}.
-(define fitted/right fitted)
+(define (fitted/right width . ls)
+  (padded/right width (trimmed/right width (each-in-list ls))))
 
 ;;> As \scheme{fitted} but pads/trims from the left.
 (define (fitted/left width . ls)
   (padded/left width (trimmed/left width (each-in-list ls))))
+
+;;> An alias for \scheme{fitted/left}.
+(define fitted fitted/left)
 
 ;;> As \scheme{fitted} but pads/trims equally from both the left and
 ;;> the right.

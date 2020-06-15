@@ -63,20 +63,37 @@ static sexp sexp_set_signal_action (sexp ctx, sexp self, sexp signum, sexp newac
 #include <sys/time.h>
 #ifndef __DragonFly__
 #include <sys/param.h>
-#include <sys/sysctl.h>
 #include <sys/proc.h>
 #endif
 #include <sys/sysctl.h>
+#ifndef __NetBSD__
 #include <sys/user.h>
+#endif
 
 static sexp sexp_pid_cmdline (sexp ctx, int pid) {
-  size_t reslen = sizeof(struct kinfo_proc);
+#ifdef __NetBSD__
+  /*
+   * Newer version with defined interface that doesn't expose kernel
+   * guts and works with 64-bit kernel, 32-bit userland.
+   */
+  struct kinfo_proc2 res;
+  int id = KERN_PROC2;
+#else
   struct kinfo_proc res;
-  int name[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, pid};
-  if (sysctl(name, 4, &res, &reslen, NULL, 0) >= 0) {
-#if defined(__APPLE__) || defined(__NetBSD__)
+  int id = KERN_PROC;
+#endif
+  size_t reslen = sizeof(res);
+#if defined(__NetBSD__) || defined(__OpenBSD__)
+  int name[6] = {CTL_KERN, id, KERN_PROC_PID, pid, reslen, 1};
+  unsigned namelen = 6;
+#else
+  int name[4] = {CTL_KERN, id, KERN_PROC_PID, pid};
+  unsigned namelen = 4;
+#endif
+  if (sysctl(name, namelen, &res, &reslen, NULL, 0) >= 0 && reslen > 0) {
+#if defined(__APPLE__)
     return sexp_c_string(ctx, res.kp_proc.p_comm, -1);
-#elif __OpenBSD__
+#elif defined(__NetBSD__) || defined(__OpenBSD__)
     return sexp_c_string(ctx, res.p_comm, -1);
 #elif __DragonFly__
     return sexp_c_string(ctx, res.kp_comm, -1);

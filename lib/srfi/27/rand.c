@@ -18,7 +18,7 @@
 
 #define sexp_sizeof_random (sexp_sizeof_header + sizeof(sexp_random_t) + sizeof(sexp))
 
-#ifdef __GNU_LIBRARY__
+#ifdef __GNU_SOURCE__
 
 typedef struct random_data sexp_random_t;
 
@@ -31,17 +31,7 @@ typedef struct random_data sexp_random_t;
 #define sexp_call_random(rs, dst) random_r(sexp_random_data(rs), &dst)
 #define sexp_seed_random(n, rs) srandom_r(n, sexp_random_data(rs))
 
-#elif defined(_WIN32)
-
-typedef unsigned int sexp_random_t;
-
-/* FIXME: MSVC CRT has rand_s() for "cryptographically secure" random number
- *        for WinXP or later. */
-#define sexp_random_init(rs, seed) (void)0
-#define sexp_call_random(rs, dst) ((dst) = rand())
-#define sexp_seed_random(n, rs) srand(n)
-
-#else
+#elif _POSIX_C_SOURCE >= 1 || _XOPEN_SOURCE || _POSIX_SOURCE
 
 typedef unsigned int sexp_random_t;
 
@@ -49,6 +39,17 @@ typedef unsigned int sexp_random_t;
 
 #define sexp_call_random(rs, dst) ((dst) = rand_r(sexp_random_data(rs)))
 #define sexp_seed_random(n, rs) *sexp_random_data(rs) = (n)
+
+#else
+
+typedef unsigned int sexp_random_t;
+
+#define sexp_random_init(rs, seed) (void)0
+
+/* FIXME: MSVC CRT has rand_s() for "cryptographically secure" random number
+ *        for WinXP or later. */
+#define sexp_call_random(rs, dst) ((dst) = rand())
+#define sexp_seed_random(n, rs) srand(n)
 
 #endif
 
@@ -63,8 +64,12 @@ sexp sexp_rs_random_integer (sexp ctx, sexp self, sexp_sint_t n, sexp rs, sexp b
   if (!sexp_random_source_p(self, rs))
     return sexp_type_exception(ctx, self, sexp_unbox_fixnum(sexp_opcode_arg1_type(self)), rs);
   if (sexp_fixnump(bound)) {
-    sexp_call_random(rs, m);
-    res = sexp_make_fixnum(m % sexp_unbox_fixnum(bound));
+    if (sexp_unbox_fixnum(bound) <= 0) {
+      res = sexp_xtype_exception(ctx, self, "random bound must be positive", bound);
+    } else {
+      sexp_call_random(rs, m);
+      res = sexp_make_fixnum(m % sexp_unbox_fixnum(bound));
+    }
 #if SEXP_USE_BIGNUMS
   } else if (sexp_bignump(bound)) {
     hi = sexp_bignum_hi(bound);

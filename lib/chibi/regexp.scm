@@ -564,10 +564,10 @@
 (define (match/eog str i ch start end matches)
   (and (string-cursor>? i start)
        (or (string-cursor>=? i end)
-           (let ((m (regexp-search re:grapheme str
-                                   (string-cursor->index str i)
-                                   (string-cursor->index str end))))
-             (and m (string-cursor<=? (regexp-match-submatch-end m 0) i))))))
+           (let* ((sci (string-cursor->index str i))
+                  (sce (string-cursor->index str end))
+                  (m (regexp-search re:grapheme str sci sce)))
+             (and m (<= (regexp-match-submatch-end m 0) sci))))))
 
 (define (lookup-char-set name flags)
   (cond
@@ -676,7 +676,9 @@
       (if (string? (car sre))
           (maybe-ci (string->char-set (car sre)))
           (case (car sre)
-            ((char-set) (maybe-ci (string->char-set (cadr sre))))
+            ((char-set) (if (null? (cddr sre))
+                            (maybe-ci (string->char-set (cadr sre)))
+                            (error "(char-set) takes only one char-set" sre)))
             ((/ char-range)
              (->cs
               `(or ,@(map (lambda (x)
@@ -689,10 +691,18 @@
             ((~ complement) (char-set-complement (->cs `(or ,@(cdr sre)))))
             ((- difference) (char-set-difference (->cs (cadr sre))
                                                  (->cs `(or ,@(cddr sre)))))
-            ((w/case) (sre->char-set (cadr sre) (flag-clear flags ~ci?)))
-            ((w/nocase) (sre->char-set (cadr sre) (flag-join flags ~ci?)))
-            ((w/ascii) (sre->char-set (cadr sre) (flag-join flags ~ascii?)))
-            ((w/unicode) (sre->char-set (cadr sre) (flag-clear flags ~ascii?)))
+            ((w/case) (if (null? (cddr sre))
+                          (sre->char-set (cadr sre) (flag-clear flags ~ci?))
+                          (error "w/case takes only one char-set" sre)))
+            ((w/nocase) (if (null? (cddr sre))
+                            (sre->char-set (cadr sre) (flag-join flags ~ci?))
+                            (error "w/nocase takes only one char-set" sre)))
+            ((w/ascii) (if (null? (cddr sre))
+                           (sre->char-set (cadr sre) (flag-join flags ~ascii?))
+                           (error "w/ascii takes only one char-set" sre)))
+            ((w/unicode) (if (null? (cddr sre))
+                             (sre->char-set (cadr sre) (flag-clear flags ~ascii?))
+                             (error "w/unicode takes only one char-set" sre)))
             (else (error "invalid sre char-set" sre)))))
      (else (error "invalid sre char-set" sre)))))
 
@@ -783,7 +793,7 @@
                (+ ,char-set:regional-indicator)
                (: "\r\n")
                (: (~ control ("\r\n"))
-                  (+ ,char-set:extend-or-spacing-mark))
+                  (* ,char-set:extend-or-spacing-mark))
                control)
           flags
           next))
@@ -1109,31 +1119,35 @@
            (cons
             (substring str start (regexp-match-submatch-start m 0))
             (append
-             (reverse (regexp-apply-match m str subst))
+             (reverse (regexp-apply-match m str subst start end))
              (list (substring str (regexp-match-submatch-end m 0) end)))))))))))
 
 ;;> Equivalent to \var{regexp-replace}, but replaces all occurrences
 ;;> of \var{re} in \var{str}.
 
 (define (regexp-replace-all rx str subst . o)
-  (regexp-fold
-   rx
-   (lambda (i m str acc)
-     (let ((m-start (regexp-match-submatch-start m 0)))
-       (append (regexp-apply-match m str subst)
-               (if (>= i m-start)
-                   acc
-                   (cons (substring str i m-start) acc)))))
-   '()
-   str
-   (lambda (i m str acc)
-     (let ((end (string-length str)))
-       (string-concatenate-reverse
-        (if (>= i end)
-            acc
-            (cons (substring str i end) acc)))))))
+  (let* ((start (if (and (pair? o) (car o)) (car o) 0))
+         (o (if (pair? o) (cdr o) '()))
+         (end (if (and (pair? o) (car o)) (car o) (string-length str))))
+    (regexp-fold
+     rx
+     (lambda (i m str acc)
+       (let ((m-start (regexp-match-submatch-start m 0)))
+         (append (regexp-apply-match m str subst start end)
+                 (if (>= i m-start)
+                     acc
+                     (cons (substring str i m-start) acc)))))
+     '()
+     str
+     (lambda (i m str acc)
+       (let ((end (string-length str)))
+         (string-concatenate-reverse
+          (if (>= i end)
+              acc
+              (cons (substring str i end) acc)))))
+     start end)))
 
-(define (regexp-apply-match m str ls)
+(define (regexp-apply-match m str ls start end)
   (let lp ((ls ls) (res '()))
     (cond
      ((null? ls)
@@ -1148,13 +1162,11 @@
       (case (car ls)
         ((pre)
          (lp (cdr ls)
-             (cons (substring str 0 (regexp-match-submatch-start m 0))
+             (cons (substring str start (regexp-match-submatch-start m 0))
                    res)))
         ((post)
          (lp (cdr ls)
-             (cons (substring str
-                              (regexp-match-submatch-end m 0)
-                              (string-length str))
+             (cons (substring str (regexp-match-submatch-end m 0) end)
                    res)))
         (else
          (cond

@@ -4,15 +4,14 @@
           (srfi 159 unicode) (srfi 159 color))
   (export
    ;; base
-   show fn fn-fork with with! each each-in-list call-with-output
-   displayed written written-shared written-simply
+   show fn forked with with! each each-in-list call-with-output
+   displayed written written-simply pretty pretty-simply
    numeric numeric/comma numeric/si numeric/fitted
    nothing nl fl space-to tab-to escaped maybe-escaped
-   padded padded/left padded/right padded/both
-   trimmed trimmed/left trimmed/right trimmed/both trimmed/lazy
-   fitted fitted/left fitted/right fitted/both
+   padded padded/right padded/both
+   trimmed trimmed/right trimmed/both trimmed/lazy
+   fitted fitted/right fitted/both
    joined joined/prefix joined/suffix joined/last joined/dot joined/range
-   upcased downcased
    ;; columnar
    call-with-output-generator call-with-output-generators
    string->line-generator

@@ -201,7 +201,7 @@ where \var{<library-declarations>} can be any of
   (begin <expr> ...)                   ;; inline Scheme code
   (include <file> ...)                 ;; load one or more files
   (include-ci <file> ...)              ;; as include, with case-folding
-  (include-shared <file> ...)          ;; dynamic load a library
+  (include-shared <file> ...)          ;; dynamic load a library (non-R7RS)
 }
 
 \var{<import-spec>} can either be a module name or any of
@@ -210,7 +210,8 @@ where \var{<library-declarations>} can be any of
   (only <import-spec> <id> ...)
   (except <import-spec> <id> ...)
   (rename <import-spec> (<from-id> <to-id>) ...)
-  (prefix <prefix-id> <import-spec>)
+  (prefix <import-spec> <prefix-id>)
+  (drop-prefix <import-spec> <prefix-id>)   ;; non-R7RS
 }
 
 These forms perform basic selection and renaming of individual
@@ -523,6 +524,11 @@ Returns the current binding of \var{sym} in \var{env}, or \var{dflt} if there
 is no binding.
 }}
 
+\item{\ccode{sexp_env_import(sexp ctx, sexp to, sexp from, sexp ls, sexp immutp)}
+\p{
+Imports the bindings from environment \var{from} into environment \var{to}.  \var{ls} is the list of bindings to import - if it is \scheme{#f} then import all bindings.  If \var{immutp} is true the imported bindings are immutable and cannot be redefined.
+}}
+
 \item{\ccode{sexp_parameter_ref(sexp ctx, sexp param)}
 \p{
 Returns the current dynamic value of the parameter \var{param} in the
@@ -811,7 +817,7 @@ Any of these may fail and return the OOM exception object.
 \item{\ccode{sexp_write_to_string(sexp ctx, sexp obj)} - return a Scheme string representation of \var{obj}}
 \item{\ccode{sexp_open_input_string(sexp ctx, sexp str)} - equivalent to \scheme{open-input-string}}
 \item{\ccode{sexp_open_output_string(sexp ctx)} - equivalent to \scheme{open-output-string}}
-\item{\ccode{sexp_get_output_string(sexp ctx, sexp port)} - equivalent to \scheme{open-output-string}}
+\item{\ccode{sexp_get_output_string(sexp ctx, sexp port)} - equivalent to \scheme{get-output-string}}
 ]
 
 \subsubsection{Utilities}
@@ -1200,7 +1206,7 @@ snow-fort):
 \item{\hyperlink["http://srfi.schemers.org/srfi-8/srfi-8.html"]{(srfi 8)  - receive}}
 \item{\hyperlink["http://srfi.schemers.org/srfi-9/srfi-9.html"]{(srfi 9)  - define-record-type}}
 \item{\hyperlink["http://srfi.schemers.org/srfi-11/srfi-11.html"]{(srfi 11) - let-values/let*-values}}
-\item{\hyperlink["http://srfi.schemers.org/srfi-11/srfi-14.html"]{(srfi 14) - character-set library}}
+\item{\hyperlink["http://srfi.schemers.org/srfi-14/srfi-14.html"]{(srfi 14) - character-set library}}
 \item{\hyperlink["http://srfi.schemers.org/srfi-16/srfi-16.html"]{(srfi 16) - case-lambda}}
 \item{\hyperlink["http://srfi.schemers.org/srfi-18/srfi-18.html"]{(srfi 18) - multi-threading support}}
 \item{\hyperlink["http://srfi.schemers.org/srfi-22/srfi-22.html"]{(srfi 22) - running scheme scripts on Unix}}
@@ -1279,6 +1285,8 @@ namespace.
 \item{\hyperlink["lib/chibi/modules.html"]{(chibi modules) - Introspection for the module system itself}}
 
 \item{\hyperlink["lib/chibi/net.html"]{(chibi net) - Simple networking interface}}
+
+\item{\hyperlink["lib/chibi/net/http-server.html"]{(chibi net http-server) - Simple http-server with servlet support}}
 
 \item{\hyperlink["lib/chibi/parse.html"]{(chibi parse) - Parser combinators with convenient syntax}}
 

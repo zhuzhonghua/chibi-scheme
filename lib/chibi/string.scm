@@ -14,6 +14,11 @@
 (define (string-null? str)
   (equal? str ""))
 
+(define (->cursor str x)
+  (if (string-cursor? x)
+      x
+      (string-index->cursor str x)))
+
 (define (make-char-predicate x)
   (cond ((procedure? x) x)
         ((char? x) (lambda (ch) (eq? ch x)))
@@ -28,10 +33,14 @@
 ;;> \var{char-set-contains?}).  Always returns false if \var{str} is
 ;;> empty.
 
-(define (string-any check str)
+(define (string-any check str . o)
   (let ((pred (make-char-predicate check))
-        (end (string-cursor-end str)))
-    (and (string-cursor>? end (string-cursor-start str))
+        (end (if (and (pair? o) (pair? (cdr o)))
+                 (->cursor str (cadr o))
+                 (string-cursor-end str))))
+    (and (string-cursor>? end (if (pair? o)
+                                  (->cursor str (car o))
+                                  (string-cursor-start str)))
          (let lp ((i (string-cursor-start str)))
            (let ((i2 (string-cursor-next str i))
                  (ch (string-cursor-ref str i)))
@@ -43,8 +52,8 @@
 ;;> \var{str}.  \var{check} can be a procedure, char or char-set as in
 ;;> \scheme{string-any}.  Always returns true if \var{str} is empty.
 
-(define (string-every check str)
-  (not (string-any (complement (make-char-predicate check)) str)))
+(define (string-every check str . o)
+  (not (apply string-any (complement (make-char-predicate check)) str o)))
 
 ;;> Returns a cursor pointing to the first position from the left in
 ;;> string for which \var{check} is true.  \var{check} can be a
@@ -56,7 +65,7 @@
 (define (string-find str check . o)
   (let ((pred (make-char-predicate check))
         (end (if (and (pair? o) (pair? (cdr o)))
-                 (cadr o)
+                 (->cursor str (cadr o))
                  (string-cursor-end str))))
     (let lp ((i (if (pair? o) (car o) (string-cursor-start str))))
       (cond ((string-cursor>=? i end) end)
@@ -67,9 +76,9 @@
 ;;> character matches.
 
 (define (string-find? str check . o)
-  (let ((start (if (pair? o) (car o) (string-cursor-start str)))
+  (let ((start (if (pair? o) (->cursor str (car o)) (string-cursor-start str)))
         (end (if (and (pair? o) (pair? (cdr o)))
-                 (cadr o)
+                 (->cursor str (cadr o))
                  (string-cursor-end str))))
     (string-cursor<? (string-find str check start end) end)))
 
@@ -79,9 +88,9 @@
 
 (define (string-find-right str check . o)
   (let ((pred (make-char-predicate check))
-        (start (if (pair? o) (car o) (string-cursor-start str))))
+        (start (if (pair? o) (->cursor str (car o)) (string-cursor-start str))))
     (let lp ((i (if (and (pair? o) (pair? (cdr o)))
-                    (cadr o)
+                    (->cursor str (cadr o))
                     (string-cursor-end str))))
       (let ((i2 (string-cursor-prev str i)))
         (cond ((string-cursor<? i2 start) start)
@@ -164,6 +173,9 @@
         ""
         (substring-cursor str left right))))
 
+;;> Returns two values: the first cursors from the left in
+;;> \var{prefix} and in \var{str} where the two strings don't match.
+
 (define (string-mismatch prefix str)
   (let ((end1 (string-cursor-end prefix))
         (end2 (string-cursor-end str)))
@@ -172,8 +184,11 @@
       (if (or (string-cursor>=? i end1)
               (string-cursor>=? j end2)
               (not (eq? (string-cursor-ref prefix i) (string-cursor-ref str j))))
-          j
+          (values i j)
           (lp (string-cursor-next prefix i) (string-cursor-next str j))))))
+
+;;> Returns two values: the first cursors from the right in
+;;> \var{prefix} and in \var{str} where the two strings don't match.
 
 (define (string-mismatch-right suffix str)
   (let ((end1 (string-cursor-start suffix))
@@ -183,17 +198,14 @@
       (if (or (string-cursor<? i end1)
               (string-cursor<? j end2)
               (not (eq? (string-cursor-ref suffix i) (string-cursor-ref str j))))
-          j
+          (values i j)
           (lp (string-cursor-prev suffix i) (string-cursor-prev str j))))))
-
-;; TODO: These definitions are specific to the Chibi implementation of
-;; cursors.  Possibly the mismatch API should be modified to allow an
-;; efficient portable definition.
 
 ;;> Returns true iff \var{prefix} is a prefix of \var{str}.
 
 (define (string-prefix? prefix str)
-  (string-cursor=? (string-cursor-end prefix) (string-mismatch prefix str)))
+  (call-with-values (lambda () (string-mismatch prefix str))
+    (lambda (i j) (string-cursor=? (string-cursor-end prefix) i))))
 
 ;;> Returns true iff \var{suffix} is a suffix of \var{str}.
 
@@ -204,7 +216,9 @@
                                               (string-cursor-start suffix))
                           (string-cursor-back
                            str
-                           (string-mismatch-right suffix str)
+                           (call-with-values
+                               (lambda () (string-mismatch-right suffix str))
+                             (lambda (i j) j))
                            diff)))))
 
 ;;> The fundamental string iterator.  Calls \var{kons} on each
@@ -262,13 +276,13 @@
   (let ((pred (make-char-predicate check)))
     (string-fold (lambda (ch count) (if (pred ch) (+ count 1) count)) 0 str)))
 
-;;> \procedure{(string-contains s1 s2)}
+;;> \procedure{(string-contains s1 s2 [start])}
 ;;>
 ;;> Returns a cursor pointing to the first position in the string
 ;;> \var{s1} where \var{s2} occurs, or \scheme{#f} if there is no such
 ;;> match.
 
-;;> \procedure{(mamke-string-searcher needle)}
+;;> \procedure{(make-string-searcher needle)}
 ;;>
 ;;> Partial application of \scheme{string-contains}.  Return a
 ;;> procedure of one argument, a string, which runs

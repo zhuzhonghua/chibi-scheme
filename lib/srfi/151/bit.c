@@ -350,7 +350,7 @@ static const char log_table_256[256] =
 {
 #define LT(n) n, n, n, n, n, n, n, n, n, n, n, n, n, n, n, n
   0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4,
-  LT(5), LT(6), LT(7), LT(7), LT(7), LT(7), LT(7),
+  LT(5), LT(6), LT(6), LT(7), LT(7), LT(7), LT(7),
   LT(8), LT(8), LT(8), LT(8), LT(8), LT(8), LT(8), LT(8)
 };
 
@@ -398,13 +398,15 @@ sexp sexp_bit_set_p (sexp ctx, sexp self, sexp_sint_t n, sexp i, sexp x) {
     return sexp_xtype_exception(ctx, self, "index must be non-negative", i);
   if (sexp_fixnump(x)) {
     return sexp_make_boolean((pos < sizeof(sexp_uint_t)*CHAR_BIT)
-                             && (sexp_unbox_fixnum(x) & ((sexp_uint_t)1<<pos)));
+                             ? (sexp_unbox_fixnum(x) & ((sexp_uint_t)1<<pos))
+                             : sexp_unbox_fixnum(x) < 0);
 #if SEXP_USE_BIGNUMS
   } else if (sexp_bignump(x)) {
     pos /= (sizeof(sexp_uint_t)*CHAR_BIT);
     rem = (sexp_unbox_fixnum(i) - pos*sizeof(sexp_uint_t)*CHAR_BIT);
     return sexp_make_boolean((pos < (sexp_sint_t)sexp_bignum_length(x))
-                             && (sexp_bignum_data(x)[pos] & ((sexp_uint_t)1<<rem)));
+                             ? (sexp_bignum_data(x)[pos] & ((sexp_uint_t)1<<rem))
+                             : sexp_bignum_sign(x) < 0);
 #endif
   } else {
     return sexp_type_exception(ctx, self, SEXP_FIXNUM, x);
